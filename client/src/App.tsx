@@ -7,6 +7,7 @@ import NotFound from "@/pages/not-found";
 
 import LiveMapPage from "@/pages/live-map";
 import RankingsPage from "@/pages/rankings";
+import LookupPage from "@/pages/lookup";
 import DocumentsPage from "@/pages/documents";
 import LayersPage from "@/pages/layers";
 import AdminPage from "@/pages/admin";
@@ -16,6 +17,7 @@ function Router() {
     <Switch>
       <Route path="/" component={LiveMapPage} />
       <Route path="/rankings" component={RankingsPage} />
+      <Route path="/lookup" component={LookupPage} />
       <Route path="/documents" component={DocumentsPage} />
       <Route path="/layers" component={LayersPage} />
       <Route path="/admin" component={AdminPage} />
