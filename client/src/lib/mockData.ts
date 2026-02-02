@@ -154,6 +154,27 @@ export function mockOutages(providers: ProviderKey[]): OutageApiResponse {
       {
         type: "Feature",
         properties: {
+          provider: "unitil",
+          customers: 310,
+          status: "outage",
+          confidence: "quadkey-tile",
+        },
+        geometry: {
+          type: "Polygon",
+          coordinates: [
+            [
+              [-71.7618, 42.52],
+              [-71.7418, 42.52],
+              [-71.7418, 42.50],
+              [-71.7618, 42.50],
+              [-71.7618, 42.52],
+            ],
+          ],
+        },
+      },
+      {
+        type: "Feature",
+        properties: {
           provider: "mock",
           customers: 140,
           status: "outage",
@@ -191,9 +212,18 @@ export function mockScores(window: ScoreWindow): ScoresApiResponse {
   const base = window === "24h" ? 1 : window === "7d" ? 0.82 : 0.68;
   const mk = (i: number, lat: number, lng: number): ScoreCell => {
     const outage = Math.max(0.12, base * (0.65 - i * 0.04));
+    const heatShare = 0.22 + i * 0.01;
+    const noGasShare = 0.18 + i * 0.012;
+    
+    // Scoring logic simulation based on inputs:
+    // Outage score: base minutes/frequency
+    // Boosts:
+    // - heat: +0.10 if electric heat share > 0.25
+    // - noGas: +0.08 if no gas share > 0.20
+    
     const boosts = {
-      heat: i % 3 === 0 ? 0.1 : 0,
-      noGas: i % 4 === 0 ? 0.08 : 0,
+      heat: heatShare > 0.25 ? 0.1 : 0,
+      noGas: noGasShare > 0.22 ? 0.08 : 0,
       repeatDay: i % 5 === 0 ? 0.08 : 0,
       large: i % 2 === 0 ? 0.05 : 0,
       social: i % 6 === 0 ? 0.03 : 0,
@@ -204,8 +234,8 @@ export function mockScores(window: ScoreWindow): ScoresApiResponse {
     );
 
     const reasons: string[] = [];
-    if (boosts.heat) reasons.push("High electric heat share (+0.10)");
-    if (boosts.noGas) reasons.push("Limited gas coverage (+0.08)");
+    if (boosts.heat) reasons.push(`High electric heat share (${(heatShare * 100).toFixed(1)}%)`);
+    if (boosts.noGas) reasons.push(`Limited gas coverage (${(noGasShare * 100).toFixed(1)}% no gas)`);
     if (boosts.repeatDay) reasons.push("Repeat-day outages (+0.08)");
     if (boosts.large) reasons.push("Larger outage footprint (+0.05)");
     if (boosts.social) reasons.push("Public page hotspot (+0.03)");
@@ -222,8 +252,8 @@ export function mockScores(window: ScoreWindow): ScoresApiResponse {
         events: 7 + i,
         minutes_out: 220 + i * 18,
         customers_affected_est: 4500 + i * 520,
-        electric_heat_share: 0.22 + i * 0.01,
-        no_gas_share: 0.18 + i * 0.012,
+        electric_heat_share: heatShare,
+        no_gas_share: noGasShare,
         social_signal: boosts.social ? 0.6 : 0.1,
       },
       top_reasons: reasons.slice(0, 3),
