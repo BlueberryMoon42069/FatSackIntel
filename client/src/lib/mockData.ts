@@ -112,6 +112,48 @@ export function mockOutages(providers: ProviderKey[]): OutageApiResponse {
       {
         type: "Feature",
         properties: {
+          provider: "national_grid",
+          customers: 1250,
+          status: "outage",
+          confidence: "quadkey-tile",
+        },
+        geometry: {
+          type: "Polygon",
+          coordinates: [
+            [
+              [-71.0589, 42.3601],
+              [-71.0489, 42.3601],
+              [-71.0489, 42.3501],
+              [-71.0589, 42.3501],
+              [-71.0589, 42.3601],
+            ],
+          ],
+        },
+      },
+      {
+        type: "Feature",
+        properties: {
+          provider: "eversource",
+          customers: 840,
+          status: "outage",
+          confidence: "quadkey-tile",
+        },
+        geometry: {
+          type: "Polygon",
+          coordinates: [
+            [
+              [-71.1097, 42.3736],
+              [-71.0997, 42.3736],
+              [-71.0997, 42.3636],
+              [-71.1097, 42.3636],
+              [-71.1097, 42.3736],
+            ],
+          ],
+        },
+      },
+      {
+        type: "Feature",
+        properties: {
           provider: "mock",
           customers: 140,
           status: "outage",
@@ -266,6 +308,20 @@ export function mockHeatingLayer(): HeatingLayerResponse {
 
 export function mockDocuments(q?: string): DocumentsResponse {
   const all: DocumentRow[] = [
+    {
+      id: "kubra-specs-2024",
+      title: "Kubra API Integration Specifications",
+      provider: "Internal",
+      year: 2024,
+      url: "https://github.com/justlab/Outages",
+      tags: ["scraping", "api", "kubra", "quadkey"],
+      snippet:
+        "Technical breakdown of interval_generation_data endpoints and quadkey tiling logic for utility outage maps.",
+      metrics: [
+        { type: "SAIDI", value: 12.5, unit: "minutes", year: 2024 },
+        { type: "SAIFI", value: 0.15, unit: "interruptions", year: 2024 },
+      ],
+    },
     {
       id: "dpu-2023-reliability",
       title: "MA Electric Reliability Report (2023)",
