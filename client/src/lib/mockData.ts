@@ -339,6 +339,45 @@ export function mockHeatingLayer(): HeatingLayerResponse {
 export function mockDocuments(q?: string): DocumentsResponse {
   const all: DocumentRow[] = [
     {
+      id: "nationalgrid-2023",
+      title: "National Grid MA Service Quality Report (2023)",
+      provider: "National Grid",
+      year: 2023,
+      url: "https://www.mass.gov/doc/national-grid-2023-sqr",
+      tags: ["reliability", "saidi", "saifi", "national grid"],
+      snippet: "2023 reliability performance data for Massachusetts electric operations.",
+      metrics: [
+        { type: "SAIDI", value: 112.4, unit: "minutes", year: 2023, territory: "MA" },
+        { type: "SAIFI", value: 1.15, unit: "interruptions", year: 2023, territory: "MA" },
+      ],
+    },
+    {
+      id: "eversource-2023",
+      title: "Eversource MA Service Quality Report (2023)",
+      provider: "Eversource",
+      year: 2023,
+      url: "https://www.mass.gov/doc/eversource-2023-sqr",
+      tags: ["reliability", "saidi", "saifi", "eversource"],
+      snippet: "2023 reliability metrics for Eversource East and West territories in MA.",
+      metrics: [
+        { type: "SAIDI", value: 98.2, unit: "minutes", year: 2023, territory: "MA" },
+        { type: "SAIFI", value: 1.02, unit: "interruptions", year: 2023, territory: "MA" },
+      ],
+    },
+    {
+      id: "unitil-2023",
+      title: "Unitil MA Service Quality Report (2023)",
+      provider: "Unitil",
+      year: 2023,
+      url: "https://www.mass.gov/doc/unitil-2023-sqr",
+      tags: ["reliability", "saidi", "saifi", "unitil"],
+      snippet: "2023 performance metrics for Unitil's Massachusetts service territory.",
+      metrics: [
+        { type: "SAIDI", value: 145.8, unit: "minutes", year: 2023, territory: "MA" },
+        { type: "SAIFI", value: 1.38, unit: "interruptions", year: 2023, territory: "MA" },
+      ],
+    },
+    {
       id: "kubra-specs-2024",
       title: "Kubra API Integration Specifications",
       provider: "Internal",
