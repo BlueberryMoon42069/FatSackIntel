@@ -1,8 +1,8 @@
-# OutageIntel MA
+# SackFinder
 
 ## Overview
 
-OutageIntel MA is a Massachusetts-focused power outage intelligence platform that aggregates real-time outage data from multiple utility providers, combines it with historical reliability metrics, social media signals, and solar potential data to help identify areas with poor grid reliability. The application provides a live outage map, location rankings ("Knock Now" scores for solar sales targeting), social sentiment monitoring, and historical document search.
+SackFinder is a Massachusetts-focused power outage intelligence platform that aggregates real-time outage data from multiple utility providers, combines it with historical reliability metrics, social media signals, and solar potential data to help identify areas with poor grid reliability. The application provides a live outage map, location rankings ("Knock Now" scores for solar sales targeting), social sentiment monitoring, and historical document search.
 
 The platform scrapes data from utility providers (National Grid, MEMA, Eversource, Unitil), calculates composite reliability scores using SAIDI/SAIFI/CAIDI metrics, and integrates with NREL's PVWatts API for solar potential calculations.
 

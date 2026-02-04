@@ -21,7 +21,7 @@ function LoginPage() {
     <div className="flex flex-col items-center justify-center min-h-screen bg-background p-4 text-center">
       <div className="max-w-md w-full space-y-8 p-8 border rounded-2xl bg-card shadow-sm">
         <div className="space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight">OutageIntel MA</h1>
+          <h1 className="text-3xl font-bold tracking-tight">SackFinder</h1>
           <p className="text-muted-foreground text-sm">
             Please log in to access the power outage intelligence platform.
           </p>

@@ -41,7 +41,7 @@ export function AppShell(props: PropsWithChildren<{ subtitle?: string }>) {
                   className="text-sm font-semibold tracking-tight"
                   data-testid="text-app-title"
                 >
-                  OutageIntel MA
+                  SackFinder
                 </div>
                 <Badge variant="secondary" className="rounded-full" data-testid="badge-mode">
                   prototype
@@ -80,7 +80,7 @@ export function AppShell(props: PropsWithChildren<{ subtitle?: string }>) {
       <footer className="border-t mt-10">
         <div className="mx-auto max-w-7xl px-4 py-6 flex flex-col md:flex-row gap-2 md:items-center md:justify-between">
           <div className="text-xs text-muted-foreground" data-testid="text-footer-copy">
-            OutageIntel MA — prototype UI wired for API with graceful mock fallback.
+            SackFinder — prototype UI wired for API with graceful mock fallback.
           </div>
           <div className="text-xs text-muted-foreground" data-testid="text-footer-hint">
             Tip: set <span className="font-mono">VITE_API_BASE_URL</span> to point at your backend.
