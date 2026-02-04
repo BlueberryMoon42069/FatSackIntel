@@ -9,6 +9,30 @@ import { importHistoricalData, getHistoricalSummary } from "./utils/historical-i
 
 import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
 
+const territoryCentroids: Record<string, [number, number]> = {
+  "Worcester County": [-71.8, 42.26],
+  "Central MA": [-71.9, 42.25],
+  "North Worcester County": [-71.7, 42.45],
+  "Boston Metro": [-71.05, 42.36],
+};
+
+const townCentroids: Record<string, [number, number]> = {
+  "Clinton": [-71.6823, 42.4167],
+  "Westborough": [-71.6162, 42.2695],
+  "Worcester": [-71.8023, 42.2626],
+  "Auburn": [-71.8356, 42.1945],
+  "Spencer": [-71.9923, 42.2456],
+  "Sterling": [-71.7612, 42.4356],
+  "Holden": [-71.8623, 42.3512],
+  "Leicester": [-71.9295, 42.3112],
+  "Charlton": [-72.0512, 42.1323],
+  "Warren": [-72.1912, 42.2123],
+  "Westminster": [-71.9112, 42.5456],
+  "Paxton": [-71.9412, 42.3012],
+  "Brookfield": [-72.1012, 42.2112],
+  "West Brookfield": [-72.1623, 42.2334],
+};
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -317,12 +341,13 @@ export async function registerRoutes(
             social.avgUrgency * 0.3
           ));
           
+          const townCoords = townCentroids[townName];
           rankings.push({
             id: `town-${townName}`,
             type: "town",
             name: townName,
-            lat: null,
-            lon: null,
+            lat: townCoords ? townCoords[1] : null,
+            lon: townCoords ? townCoords[0] : null,
             knockScore: socialScore,
             outageScore: social.outageCount > 0 ? 0.7 : 0.3,
             socialScore,
@@ -346,13 +371,14 @@ export async function registerRoutes(
           // Higher SAIDI = higher outage risk score
           const outageScore = Math.min(1.0, data.avgSAIDI / 250);
           
+          const territoryCoords = territoryCentroids[territory];
           rankings.push({
             id: `territory-${territory}`,
             type: "territory",
             name: territory,
             provider: data.provider,
-            lat: null,
-            lon: null,
+            lat: territoryCoords ? territoryCoords[1] : null,
+            lon: territoryCoords ? territoryCoords[0] : null,
             knockScore: outageScore,
             outageScore,
             socialScore: 0,
