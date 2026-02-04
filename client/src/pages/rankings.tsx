@@ -46,6 +46,14 @@ type RankingItem = {
     avgCAIDI: number;
     yearsAnalyzed: number;
   };
+  historicalData?: {
+    totalIncidents: number;
+    totalCustomers: number;
+    avgDuration: number;
+    utilities: string[];
+    years: number[];
+    dataSource: string;
+  };
   updatedAt?: string;
 };
 
@@ -385,11 +393,21 @@ export default function RankingsPage() {
                             <div className="flex items-center gap-2">
                               <span className="text-muted-foreground">{getTypeIcon(r.type)}</span>
                               <div className="grid">
-                                <div className="text-sm font-medium" data-testid={`text-name-${r.id}`}>
+                                <div className="text-sm font-medium flex items-center gap-2" data-testid={`text-name-${r.id}`}>
                                   {r.name}
+                                  {r.historicalData && (
+                                    <Badge variant="outline" className="text-[9px] px-1 py-0 bg-green-50 text-green-700 border-green-300" data-testid={`badge-dpu-${r.id}`}>
+                                      DPU
+                                    </Badge>
+                                  )}
+                                  {!r.historicalData && r.socialData && (
+                                    <Badge variant="outline" className="text-[9px] px-1 py-0 bg-purple-50 text-purple-700 border-purple-300">
+                                      Social
+                                    </Badge>
+                                  )}
                                 </div>
                                 <div className="text-xs text-muted-foreground">
-                                  {r.type === "territory" && r.provider ? r.provider : r.type}
+                                  {r.historicalData ? `${r.historicalData.totalIncidents} incidents` : r.type === "territory" && r.provider ? r.provider : r.type}
                                 </div>
                               </div>
                             </div>
@@ -573,7 +591,45 @@ export default function RankingsPage() {
                   </div>
                 )}
 
-                {/* Reliability Data */}
+                {/* Historical Outage Data (DPU Filings) */}
+                {selectedItem.historicalData && (
+                  <div className="grid gap-2">
+                    <div className="text-xs font-semibold text-muted-foreground flex items-center gap-2">
+                      DPU Historical Data 
+                      <Badge variant="outline" className="text-[9px] px-1 py-0 bg-green-50 text-green-700 border-green-300">
+                        Real Data
+                      </Badge>
+                    </div>
+                    <div className="rounded-xl border bg-card p-4 grid gap-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Total Incidents</span>
+                        <span className="font-medium" data-testid="text-hist-incidents">{selectedItem.historicalData.totalIncidents}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Customers Affected</span>
+                        <span className="font-medium" data-testid="text-hist-customers">{selectedItem.historicalData.totalCustomers.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Avg Duration</span>
+                        <span className="font-medium" data-testid="text-hist-duration">{fmt(selectedItem.historicalData.avgDuration, 1)} hrs</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Utilities</span>
+                        <span className="font-medium">{selectedItem.historicalData.utilities.join(", ")}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Years</span>
+                        <span className="font-medium">{selectedItem.historicalData.years.join(", ")}</span>
+                      </div>
+                      <div className="flex justify-between text-xs pt-2 border-t">
+                        <span className="text-muted-foreground">Source</span>
+                        <span className="text-green-600 font-medium">{selectedItem.historicalData.dataSource}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Reliability Data (SAIDI/SAIFI) */}
                 {selectedItem.reliabilityData && (
                   <div className="grid gap-2">
                     <div className="text-xs font-semibold text-muted-foreground">Historical Reliability ({selectedItem.reliabilityData.yearsAnalyzed} years)</div>
