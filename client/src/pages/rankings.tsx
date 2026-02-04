@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { AppShell } from "@/components/AppShell";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -6,13 +6,20 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import { EmptyState } from "@/components/EmptyState";
 import { apiWithFallback, apiFetch } from "@/lib/api";
 import { downloadTextFile, toCsv } from "@/lib/csv";
 import { mockScores } from "@/lib/mockData";
+import { Spinner } from "@/components/ui/spinner";
 import { 
-  Activity, MessageSquare, Sun, Building2, TrendingUp, Search, RefreshCw
+  Activity, MessageSquare, Sun, Building2, TrendingUp, Search, RefreshCw, Map as MapIcon
 } from "lucide-react";
+
+import { MapContainer, TileLayer, useMap } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+import "leaflet.heat";
 
 type RankingItem = {
   id: string;
@@ -64,6 +71,80 @@ function ScoreBar({ score, color }: { score: number; color: string }) {
   );
 }
 
+function HeatmapLayer({ data, visible }: { data: RankingItem[]; visible: boolean }) {
+  const map = useMap();
+  const heatLayerRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!visible) {
+      if (heatLayerRef.current) {
+        map.removeLayer(heatLayerRef.current);
+        heatLayerRef.current = null;
+      }
+      return;
+    }
+
+    const heatPoints: [number, number, number][] = data
+      .filter((r) => r.lat != null && r.lon != null)
+      .map((r) => [r.lat!, r.lon!, r.knockScore]);
+
+    if (heatPoints.length === 0) return;
+
+    if (heatLayerRef.current) {
+      map.removeLayer(heatLayerRef.current);
+    }
+
+    heatLayerRef.current = (L as any).heatLayer(heatPoints, {
+      radius: 25,
+      blur: 15,
+      maxZoom: 17,
+      max: 1.0,
+      minOpacity: 0.4,
+      gradient: {
+        0.0: '#22c55e',
+        0.25: '#84cc16',
+        0.5: '#eab308',
+        0.75: '#f97316',
+        1.0: '#ef4444'
+      }
+    }).addTo(map);
+
+    return () => {
+      if (heatLayerRef.current) {
+        map.removeLayer(heatLayerRef.current);
+        heatLayerRef.current = null;
+      }
+    };
+  }, [map, data, visible]);
+
+  return null;
+}
+
+function HeatmapLegend() {
+  return (
+    <div className="absolute bottom-4 right-4 z-[1000] bg-white/95 dark:bg-gray-900/95 rounded-lg shadow-lg p-3 border" data-testid="heatmap-legend">
+      <div className="text-xs font-semibold mb-2 text-gray-700 dark:text-gray-300">Knock Score</div>
+      <div className="flex items-center gap-2">
+        <div 
+          className="w-24 h-3 rounded" 
+          style={{ 
+            background: 'linear-gradient(to right, #22c55e, #84cc16, #eab308, #f97316, #ef4444)' 
+          }} 
+        />
+      </div>
+      <div className="flex justify-between text-[10px] text-gray-500 dark:text-gray-400 mt-1">
+        <span>Low</span>
+        <span>Medium</span>
+        <span>High</span>
+      </div>
+      <div className="flex justify-between text-[10px] text-gray-500 dark:text-gray-400">
+        <span>Less Opportunity</span>
+        <span>Hot Opportunity</span>
+      </div>
+    </div>
+  );
+}
+
 export default function RankingsPage() {
   const [townFilter, setTownFilter] = useState("");
   const [minScore, setMinScore] = useState("");
@@ -74,6 +155,7 @@ export default function RankingsPage() {
   const [source, setSource] = useState<"api" | "mock">("api");
   const [rankings, setRankings] = useState<RankingItem[]>([]);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [showHeatmap, setShowHeatmap] = useState(true);
 
   const loadRankings = async () => {
     setLoading(true);
@@ -217,7 +299,7 @@ export default function RankingsPage() {
             <CardContent className="grid gap-3">
               {error && (
                 <div className="text-xs text-muted-foreground" data-testid="text-error">
-                  {error}
+                  Could not load rankings. Using sample data.
                 </div>
               )}
 
@@ -265,13 +347,16 @@ export default function RankingsPage() {
               <Separator />
 
               {loading ? (
-                <div className="rounded-xl border bg-card p-6" data-testid="state-loading">
+                <div className="rounded-xl border bg-card p-6 flex items-center gap-3" data-testid="state-loading">
+                  <Spinner className="h-5 w-5" />
                   <div className="text-sm font-medium">Loading rankings...</div>
                 </div>
               ) : rankings.length === 0 ? (
                 <EmptyState
-                  title="No ranked locations yet"
-                  description="Import historical data and trigger scrapers from the Admin page."
+                  title="No rankings data yet"
+                  description="Run scrapers from Admin to populate."
+                  actionLabel="Go to Admin"
+                  onAction={() => window.location.href = "/admin"}
                   testId="state-empty"
                 />
               ) : (
@@ -341,6 +426,48 @@ export default function RankingsPage() {
                   </Table>
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          {/* Heatmap */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="grid gap-1">
+                  <CardTitle className="text-base flex items-center gap-2" data-testid="text-heatmap-title">
+                    <MapIcon className="h-4 w-4" />
+                    Opportunity Heatmap
+                  </CardTitle>
+                  <div className="text-xs text-muted-foreground">
+                    Score intensity visualization based on knock scores
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Heatmap</span>
+                    <Switch
+                      checked={showHeatmap}
+                      onCheckedChange={setShowHeatmap}
+                      data-testid="toggle-heatmap"
+                    />
+                  </div>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="relative h-[400px] rounded-xl overflow-hidden border" data-testid="map-heatmap">
+                <MapContainer 
+                  center={[42.35, -71.06] as any} 
+                  zoom={8 as any} 
+                  className="h-full w-full"
+                >
+                  <TileLayer
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+                  <HeatmapLayer data={rankings} visible={showHeatmap} />
+                </MapContainer>
+                {showHeatmap && <HeatmapLegend />}
+              </div>
             </CardContent>
           </Card>
         </div>

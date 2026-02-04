@@ -200,7 +200,7 @@ export default function LiveMapPage() {
                   </div>
                   {state.error ? (
                     <div className="text-xs text-muted-foreground" data-testid="text-live-error">
-                      API unreachable: {state.error}
+                      Could not reach server. Using sample data.
                     </div>
                   ) : null}
                 </div>
@@ -219,10 +219,15 @@ export default function LiveMapPage() {
             </CardContent>
           </Card>
 
-          {!state.loading && featureCount === 0 ? (
+          {state.loading ? (
+            <div className="rounded-xl border bg-card p-6 flex items-center gap-3" data-testid="state-loading">
+              <Spinner className="h-5 w-5" />
+              <div className="text-sm font-medium">Loading outages...</div>
+            </div>
+          ) : featureCount === 0 ? (
             <EmptyState
-              title="No outage geometry in view"
-              description="Try toggling providers or zooming out to a larger area."
+              title="No active outages reported"
+              description="All systems appear to be operating normally in this area."
               testId="state-live-empty"
             />
           ) : null}

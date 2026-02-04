@@ -110,15 +110,21 @@ export default function AdminPage() {
 
         {/* Status Overview */}
         {error && (
-          <Card className="border-red-200 bg-red-50">
+          <Card className="border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950">
             <CardContent className="pt-6">
-              <p className="text-sm text-red-600" data-testid="text-admin-error">{error}</p>
+              <p className="text-sm text-red-600 dark:text-red-400" data-testid="text-admin-error">
+                Unable to load data. Please try again.
+              </p>
             </CardContent>
           </Card>
         )}
 
         {loading && !status ? (
-          <EmptyState title="Loading system status..." description="Please wait" testId="state-loading" />
+          <EmptyState 
+            title="Loading system status..." 
+            description="Fetching current data pipeline status." 
+            testId="state-loading" 
+          />
         ) : (
           <>
             {/* Stats Grid */}
