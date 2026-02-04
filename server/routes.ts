@@ -7,10 +7,14 @@ import { solarCalculator } from "./utils/solar";
 import { scoringEngine } from "./utils/scoring";
 import { importHistoricalData, getHistoricalSummary } from "./utils/historical-import";
 
+import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  await setupAuth(app);
+  registerAuthRoutes(app);
   
   // ===== OUTAGES API =====
   

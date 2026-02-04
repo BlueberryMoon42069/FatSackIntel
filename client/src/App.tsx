@@ -3,6 +3,9 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useAuth } from "@/hooks/use-auth";
+import { Button } from "@/components/ui/button";
+import { Loader2 } from "lucide-react";
 import NotFound from "@/pages/not-found";
 
 import LiveMapPage from "@/pages/live-map";
@@ -13,7 +16,46 @@ import DocumentsPage from "@/pages/documents";
 import LayersPage from "@/pages/layers";
 import AdminPage from "@/pages/admin";
 
+function LoginPage() {
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-background p-4 text-center">
+      <div className="max-w-md w-full space-y-8 p-8 border rounded-2xl bg-card shadow-sm">
+        <div className="space-y-2">
+          <h1 className="text-3xl font-bold tracking-tight">OutageIntel MA</h1>
+          <p className="text-muted-foreground text-sm">
+            Please log in to access the power outage intelligence platform.
+          </p>
+        </div>
+        <Button 
+          className="w-full py-6 text-lg" 
+          onClick={() => window.location.href = "/api/login"}
+          data-testid="button-login"
+        >
+          Log in with Replit
+        </Button>
+        <p className="text-xs text-muted-foreground">
+          Secure authentication provided by Replit Auth
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function Router() {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <LoginPage />;
+  }
+
   return (
     <Switch>
       <Route path="/" component={LiveMapPage} />

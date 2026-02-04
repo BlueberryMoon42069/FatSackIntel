@@ -3,6 +3,7 @@ import { pgTable, text, varchar, timestamp, integer, real, json, index } from "d
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+export * from "./models/auth";
 // Outage geometry from providers (MEMA, utilities)
 export const outages = pgTable("outages", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
