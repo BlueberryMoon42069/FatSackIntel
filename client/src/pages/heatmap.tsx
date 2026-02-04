@@ -74,11 +74,11 @@ export default function HeatmapPage() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (utility) params.set("utility", utility);
-      if (year) params.set("year", year);
+      if (utility && utility !== "__all__") params.set("utility", utility);
+      if (year && year !== "__all__") params.set("year", year);
       
-      const data = await apiFetch<HeatmapTown[]>(`/api/historical/heatmap?${params.toString()}`);
-      setTowns(data);
+      const response = await apiFetch<{ total: number; data: HeatmapTown[] }>(`/api/historical/heatmap?${params.toString()}`);
+      setTowns(response.data || []);
     } catch (e) {
       console.error("Failed to load heatmap data:", e);
       setTowns([]);
@@ -118,7 +118,7 @@ export default function HeatmapPage() {
                     <SelectValue placeholder="All utilities" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">All utilities</SelectItem>
+                    <SelectItem value="__all__">All utilities</SelectItem>
                     {stats?.utilities.map((u) => (
                       <SelectItem key={u} value={u}>
                         {u}
@@ -134,7 +134,7 @@ export default function HeatmapPage() {
                     <SelectValue placeholder="All years" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">All years</SelectItem>
+                    <SelectItem value="__all__">All years</SelectItem>
                     {stats?.years.map((y) => (
                       <SelectItem key={y} value={String(y)}>
                         {y}

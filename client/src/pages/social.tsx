@@ -6,19 +6,51 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
+import { EmptyState } from "@/components/EmptyState";
 import { MessageSquare, TrendingUp, AlertTriangle, Battery, Zap, DollarSign, ExternalLink } from "lucide-react";
-import { mockSocialSignals, type SocialSignalsResponse, type SocialTownMetric } from "@/lib/mockData";
+import { apiFetch } from "@/lib/api";
+
+type SocialPost = {
+  id: string;
+  source: string;
+  town: string;
+  text: string;
+  timestamp: string;
+  category: "outage" | "billing" | "intent" | "general";
+  urgency: number;
+};
+
+type SocialTownMetric = {
+  town: string;
+  score: number;
+  volume_24h: number;
+  trend: "up" | "down" | "flat";
+  top_keywords: string[];
+  posts: SocialPost[];
+};
+
+type SocialSignalsResponse = {
+  updatedAt: string;
+  towns: SocialTownMetric[];
+};
 
 export default function SocialPage() {
   const [data, setData] = useState<SocialSignalsResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | undefined>();
 
   useEffect(() => {
-    // Simulate API fetch
-    setTimeout(() => {
-      setData(mockSocialSignals());
-      setLoading(false);
-    }, 800);
+    setLoading(true);
+    setError(undefined);
+    apiFetch<SocialSignalsResponse>("/api/social")
+      .then((response) => {
+        setData(response);
+        setLoading(false);
+      })
+      .catch((e: any) => {
+        setError(e?.message ?? "Failed to load social signals");
+        setLoading(false);
+      });
   }, []);
 
   const getUrgencyColor = (score: number) => {
@@ -88,7 +120,11 @@ export default function SocialPage() {
               </div>
             </div>
 
-            {loading ? <Spinner /> : (
+            {loading ? <Spinner /> : error ? (
+              <EmptyState title="Error loading social signals" description={error} testId="state-social-error" />
+            ) : !data?.towns.length ? (
+              <EmptyState title="No social signals" description="No social sentiment data is currently available." testId="state-social-empty" />
+            ) : (
               <div className="grid gap-3">
                 {data?.towns.map((town) => (
                   <Card key={town.town} className="overflow-hidden">

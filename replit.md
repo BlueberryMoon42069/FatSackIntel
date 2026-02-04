@@ -72,24 +72,38 @@ Preferred communication style: Simple, everyday language.
 
 ## Recent Changes (Feb 2026)
 
-### Unified Rankings System
-- Built `/api/rankings` endpoint that aggregates all data sources into unified town/territory rankings
-- Combines reliability metrics (SAIDI/SAIFI/CAIDI), social signals (outage/billing/intent keywords), and solar potential into composite "Knock Score"
-- Supports filtering by town, minimum score, and sorting by any score component
+### Real DPU Historical Data Integration (Feb 4)
+- **Critical**: ALL mock/simulated data removed from system. Only real data is displayed.
+- Imported 3,158 real Eversource 2023 outage records from DPU Outage_Accident_Report filings
+- Updated `/api/rankings` to use historical incident counts for outage risk scoring
+- Added "DPU" badges to indicate real data sources in UI
+- Rankings now show 146 towns with actual incident data
 
-### Admin Data Pipeline
-- Added `/admin` page for data pipeline control and testing
-- Import historical reliability data from embedded 2014-2023 MA DPU filings
-- Trigger social signal scraping for Worcester County towns
-- Monitor system status (outages, reliability records, social signals, solar data)
+### Historical Data UI
+- **Historical Search Page** (`/historical`): Search historical outages by town, street, utility, year with sortable results and pagination
+- **Heatmap Page** (`/heatmap`): Town-level incident density visualization with colored circle markers
+- **Excel Parser**: Parses real DPU Outage_Accident_Report format (column names: "City/Town", "Date and Time Out", "Original Number Customers Affected", etc.)
 
-### Live Outage Map
-- Fixed `/api/outages` to return proper GeoJSON FeatureCollection
-- Map displays active outages from MEMA and National Grid providers with provider toggles
+### Data Sources (No Mock Data)
+- **Historical Outages**: Uploaded via Admin page Excel parser (DPU filings only)
+- **Live Outages**: Kubra API for National Grid and Eversource (real utility data)
+- **Social Signals**: Requires TWITTER_BEARER_TOKEN for real social data
+- **MEMA**: Returns empty if no active emergencies (no mock fallback)
+
+### Town Centroids
+- Expanded to 80+ MA towns including Boston Metro, Western MA, Cape Cod, North Shore regions
+- All in uppercase format to match DPU filing data
+
+### Scoring Algorithm (Knock Score)
+- Outage Risk: 50% weight (based on historical incident frequency + duration)
+- Social Signals: 30% weight (from real Twitter data only)
+- Solar Potential: 20% weight (MA average 0.65)
 
 ### Key API Endpoints
-- `GET /api/rankings` - Unified rankings (town, minScore, sortBy, limit params)
+- `GET /api/rankings` - Unified rankings with historical data source indicators
 - `GET /api/outages` - GeoJSON active outages for map display
+- `GET /api/historical` - Search historical outages with filters
+- `GET /api/historical/stats` - Summary stats (3,158 records, utilities, years)
+- `GET /api/historical/heatmap` - Town-level aggregations for map visualization
+- `POST /api/admin/upload-historical` - Upload DPU Excel files
 - `GET /api/admin/status` - Data pipeline status counts
-- `POST /api/admin/import-historical` - Import reliability data
-- `POST /api/admin/scrape-social` - Trigger social scraper

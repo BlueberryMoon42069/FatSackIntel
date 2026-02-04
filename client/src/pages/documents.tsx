@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -6,8 +6,32 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EmptyState } from "@/components/EmptyState";
-import { apiWithFallback } from "@/lib/api";
-import { mockDocuments, type DocumentsResponse, type DocumentRow } from "@/lib/mockData";
+import { apiFetch } from "@/lib/api";
+
+type DocumentMetric = {
+  type: "SAIDI" | "SAIFI" | "CAIDI";
+  value: number;
+  unit?: string;
+  year?: number;
+  territory?: string;
+};
+
+type DocumentRow = {
+  id: string;
+  title: string;
+  provider?: string;
+  year?: number;
+  url?: string;
+  tags: string[];
+  snippet: string;
+  metrics: DocumentMetric[];
+};
+
+type DocumentsResponse = {
+  updatedAt: string;
+  total: number;
+  items: DocumentRow[];
+};
 
 function MetricPill(props: { t: string; v: number; unit?: string }) {
   return (
@@ -19,7 +43,7 @@ function MetricPill(props: { t: string; v: number; unit?: string }) {
 
 export default function DocumentsPage() {
   const [q, setQ] = useState("");
-  const [state, setState] = useState<{ loading: boolean; source?: "api" | "mock"; error?: string; data?: DocumentsResponse }>({
+  const [state, setState] = useState<{ loading: boolean; error?: string; data?: DocumentsResponse }>({
     loading: true,
   });
 
@@ -29,12 +53,16 @@ export default function DocumentsPage() {
     return `/api/documents?${qs.toString()}`;
   }, [q]);
 
-  useMemo(() => {
+  useEffect(() => {
     setState((s) => ({ ...s, loading: true, error: undefined }));
-    apiWithFallback<DocumentsResponse>(fetchKey, () => mockDocuments(q), { timeoutMs: 12000 }).then((r) => {
-      setState({ loading: false, data: r.data, source: r.source, error: r.source === "mock" ? r.error?.message : undefined });
-    });
-  }, [fetchKey, q]);
+    apiFetch<DocumentsResponse>(fetchKey, { timeoutMs: 12000 })
+      .then((data) => {
+        setState({ loading: false, data });
+      })
+      .catch((e: any) => {
+        setState({ loading: false, error: e?.message ?? "Failed to load documents" });
+      });
+  }, [fetchKey]);
 
   const items: DocumentRow[] = state.data?.items ?? [];
 
@@ -46,15 +74,10 @@ export default function DocumentsPage() {
             <div className="grid gap-1">
               <CardTitle className="text-base" data-testid="text-docs-title">Historical Directory</CardTitle>
               <div className="text-xs text-muted-foreground" data-testid="text-docs-sub">
-                Filter by keywords, provider, year (API). Client falls back to seeded samples.
+                Filter by keywords, provider, or year.
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {state.source ? (
-                <Badge className="rounded-full" variant={state.source === "api" ? "secondary" : "outline"} data-testid="badge-docs-source">
-                  {state.source === "api" ? "API" : "Mock fallback"}
-                </Badge>
-              ) : null}
             </div>
           </div>
         </CardHeader>

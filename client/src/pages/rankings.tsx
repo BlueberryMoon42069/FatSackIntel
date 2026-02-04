@@ -8,9 +8,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { EmptyState } from "@/components/EmptyState";
-import { apiWithFallback, apiFetch } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import { downloadTextFile, toCsv } from "@/lib/csv";
-import { mockScores } from "@/lib/mockData";
 import { Spinner } from "@/components/ui/spinner";
 import { 
   Activity, MessageSquare, Sun, Building2, TrendingUp, Search, RefreshCw, Map as MapIcon
@@ -176,36 +175,11 @@ export default function RankingsPage() {
       params.set("sortBy", sortBy);
       params.set("limit", "100");
       
-      const result = await apiWithFallback<RankingsResponse>(
-        `/api/rankings?${params.toString()}`,
-        () => {
-          // Fallback to mock data
-          const mock = mockScores("24h");
-          return {
-            updatedAt: mock.updatedAt,
-            total: mock.cells.length,
-            rankings: mock.cells.map((c, i) => ({
-              id: c.h3,
-              type: "h3_cell" as const,
-              name: c.h3,
-              lat: c.centroid.lat,
-              lon: c.centroid.lng,
-              knockScore: c.score,
-              outageScore: c.score_outage,
-              socialScore: c.boosts.social || 0.1,
-              solarScore: (c.solar?.solar_score || 60) / 100,
-            })),
-          };
-        },
-        { timeoutMs: 15000 }
-      );
+      const result = await apiFetch<RankingsResponse>(`/api/rankings?${params.toString()}`);
       
-      setRankings(result.data.rankings);
-      setUpdatedAt(result.data.updatedAt);
-      setSource(result.source);
-      if (result.source === "mock" && result.error) {
-        setError(result.error.message);
-      }
+      setRankings(result.rankings);
+      setUpdatedAt(result.updatedAt);
+      setSource("api");
     } catch (e: any) {
       setError(e?.message ?? "Failed to load rankings");
     } finally {

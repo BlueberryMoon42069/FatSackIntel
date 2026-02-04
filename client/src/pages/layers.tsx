@@ -5,11 +5,23 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { EmptyState } from "@/components/EmptyState";
-import { apiWithFallback } from "@/lib/api";
-import { mockGasLayer, mockHeatingLayer, type GasLayerResponse, type HeatingLayerResponse } from "@/lib/mockData";
+import { apiFetch } from "@/lib/api";
+import type { FeatureCollection, Geometry } from "geojson";
 
 import { MapContainer, TileLayer, GeoJSON } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
+
+type GasLayerResponse = {
+  updatedAt: string;
+  source: "sample" | "massgis" | "csv";
+  features: FeatureCollection<Geometry, any>;
+};
+
+type HeatingLayerResponse = {
+  updatedAt: string;
+  source: "sample" | "acs" | "csv";
+  features: FeatureCollection<Geometry, any>;
+};
 
 export default function LayersPage() {
   const [showGas, setShowGas] = useState(true);
@@ -18,35 +30,43 @@ export default function LayersPage() {
 
   const cacheRef = useRef(new Map<string, any>());
 
-  const [gasState, setGasState] = useState<{ loading: boolean; source?: "api" | "mock"; error?: string; data?: GasLayerResponse }>({
+  const [gasState, setGasState] = useState<{ loading: boolean; error?: string; data?: GasLayerResponse }>({
     loading: true,
   });
-  const [heatState, setHeatState] = useState<{ loading: boolean; source?: "api" | "mock"; error?: string; data?: HeatingLayerResponse }>({
+  const [heatState, setHeatState] = useState<{ loading: boolean; error?: string; data?: HeatingLayerResponse }>({
     loading: true,
   });
 
   useEffect(() => {
     const key = "gas";
     const cached = cacheRef.current.get(key);
-    if (cached) setGasState({ loading: false, data: cached, source: "api" });
+    if (cached) setGasState({ loading: false, data: cached });
 
-    setGasState((s) => ({ ...s, loading: true }));
-    apiWithFallback<GasLayerResponse>("/api/layers/gas", mockGasLayer, { timeoutMs: 12000 }).then((r) => {
-      cacheRef.current.set(key, r.data);
-      setGasState({ loading: false, data: r.data, source: r.source, error: r.source === "mock" ? r.error?.message : undefined });
-    });
+    setGasState((s) => ({ ...s, loading: true, error: undefined }));
+    apiFetch<GasLayerResponse>("/api/layers/gas", { timeoutMs: 12000 })
+      .then((data) => {
+        cacheRef.current.set(key, data);
+        setGasState({ loading: false, data });
+      })
+      .catch((e: any) => {
+        setGasState({ loading: false, error: e?.message ?? "Failed to load gas layer" });
+      });
   }, []);
 
   useEffect(() => {
     const key = "heating";
     const cached = cacheRef.current.get(key);
-    if (cached) setHeatState({ loading: false, data: cached, source: "api" });
+    if (cached) setHeatState({ loading: false, data: cached });
 
-    setHeatState((s) => ({ ...s, loading: true }));
-    apiWithFallback<HeatingLayerResponse>("/api/layers/heating", mockHeatingLayer, { timeoutMs: 12000 }).then((r) => {
-      cacheRef.current.set(key, r.data);
-      setHeatState({ loading: false, data: r.data, source: r.source, error: r.source === "mock" ? r.error?.message : undefined });
-    });
+    setHeatState((s) => ({ ...s, loading: true, error: undefined }));
+    apiFetch<HeatingLayerResponse>("/api/layers/heating", { timeoutMs: 12000 })
+      .then((data) => {
+        cacheRef.current.set(key, data);
+        setHeatState({ loading: false, data });
+      })
+      .catch((e: any) => {
+        setHeatState({ loading: false, error: e?.message ?? "Failed to load heating layer" });
+      });
   }, []);
 
   const hasAny = useMemo(() => {
@@ -116,22 +136,10 @@ export default function LayersPage() {
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2 pt-2">
-                  {gasState.source ? (
-                    <Badge className="rounded-full" variant={gasState.source === "api" ? "secondary" : "outline"} data-testid="badge-gas-source">
-                      Gas: {gasState.source === "api" ? "API" : "Mock"}
-                    </Badge>
-                  ) : null}
-                  {heatState.source ? (
-                    <Badge className="rounded-full" variant={heatState.source === "api" ? "secondary" : "outline"} data-testid="badge-heat-source">
-                      Heating: {heatState.source === "api" ? "API" : "Mock"}
-                    </Badge>
-                  ) : null}
-                </div>
-
                 {(gasState.error || heatState.error) ? (
                   <div className="text-xs text-muted-foreground" data-testid="text-layers-error">
-                    API unreachable: {gasState.error ?? heatState.error}
+                    {gasState.error && <div>Gas layer: {gasState.error}</div>}
+                    {heatState.error && <div>Heating layer: {heatState.error}</div>}
                   </div>
                 ) : null}
               </div>

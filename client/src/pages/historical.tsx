@@ -85,8 +85,8 @@ export default function HistoricalPage() {
     try {
       const params = new URLSearchParams();
       if (searchText) params.set("town", searchText);
-      if (utility) params.set("utility", utility);
-      if (year) params.set("year", year);
+      if (utility && utility !== "__all__") params.set("utility", utility);
+      if (year && year !== "__all__") params.set("year", year);
       params.set("limit", String(PAGE_SIZE));
       params.set("offset", String(newPage * PAGE_SIZE));
 
@@ -208,7 +208,7 @@ export default function HistoricalPage() {
                     <SelectValue placeholder="All utilities" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">All utilities</SelectItem>
+                    <SelectItem value="__all__">All utilities</SelectItem>
                     {stats?.utilities.map((u) => (
                       <SelectItem key={u} value={u}>
                         {u}
@@ -224,7 +224,7 @@ export default function HistoricalPage() {
                     <SelectValue placeholder="All years" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">All years</SelectItem>
+                    <SelectItem value="__all__">All years</SelectItem>
                     {stats?.years.map((y) => (
                       <SelectItem key={y} value={String(y)}>
                         {y}

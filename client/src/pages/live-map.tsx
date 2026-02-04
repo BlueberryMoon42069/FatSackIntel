@@ -7,16 +7,20 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/EmptyState";
-import { apiWithFallback } from "@/lib/api";
-import {
-  mockOutages,
-  type OutageApiResponse,
-  type ProviderKey,
-} from "@/lib/mockData";
+import { apiFetch } from "@/lib/api";
+import type { FeatureCollection, Geometry } from "geojson";
 
 import { MapContainer, TileLayer, GeoJSON, useMapEvents } from "react-leaflet";
 import type { LeafletEvent } from "leaflet";
 import "leaflet/dist/leaflet.css";
+
+type ProviderKey = "mema" | "eversource" | "national_grid" | "unitil";
+
+type OutageApiResponse = {
+  updatedAt: string;
+  providers: ProviderKey[];
+  features: FeatureCollection<Geometry, any>;
+};
 
 type BBox = { west: number; south: number; east: number; north: number };
 
@@ -53,7 +57,7 @@ function MapEvents(props: { onMoveEnd: (bbox: BBox) => void }) {
 }
 
 export default function LiveMapPage() {
-  const [providers, setProviders] = useState<ProviderKey[]>(["mema", "mock"]);
+  const [providers, setProviders] = useState<ProviderKey[]>(["mema", "eversource", "national_grid", "unitil"]);
   const [bbox, setBbox] = useState<BBox>({
     west: -73.6,
     south: 41.2,
@@ -70,14 +74,12 @@ export default function LiveMapPage() {
   const [state, setState] = useState<{
     loading: boolean;
     error?: string;
-    source?: "api" | "mock";
     updatedAt?: string;
     data?: OutageApiResponse;
   }>({ loading: true });
 
   const providerToggles: { key: ProviderKey; label: string }[] = [
     { key: "mema", label: "MEMA" },
-    { key: "mock", label: "Mock" },
     { key: "eversource", label: "Eversource" },
     { key: "national_grid", label: "National Grid" },
     { key: "unitil", label: "Unitil" },
@@ -100,7 +102,6 @@ export default function LiveMapPage() {
       setState({
         loading: false,
         data: cached,
-        source: "api",
         updatedAt: cached.updatedAt,
       });
     }
@@ -111,21 +112,24 @@ export default function LiveMapPage() {
 
     setState((s) => ({ ...s, loading: true, error: undefined }));
 
-    apiWithFallback<OutageApiResponse>(
-      url,
-      () => mockOutages(debouncedProviders),
-      { signal: controller.signal, timeoutMs: 10000 },
-    ).then((r) => {
-      if (controller.signal.aborted) return;
-      cacheRef.current.set(key, r.data);
-      setState({
-        loading: false,
-        data: r.data,
-        source: r.source,
-        updatedAt: r.data.updatedAt,
-        error: r.source === "mock" ? r.error?.message : undefined,
+    apiFetch<OutageApiResponse>(url, { signal: controller.signal, timeoutMs: 10000 })
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        cacheRef.current.set(key, data);
+        setState({
+          loading: false,
+          data,
+          updatedAt: data.updatedAt,
+        });
+      })
+      .catch((e: any) => {
+        if (controller.signal.aborted) return;
+        setState((s) => ({
+          ...s,
+          loading: false,
+          error: e?.message ?? "Failed to load outages",
+        }));
       });
-    });
 
     return () => controller.abort();
   }, [url, debouncedBbox, debouncedProviders]);
@@ -148,15 +152,6 @@ export default function LiveMapPage() {
                   <div className="text-xs text-muted-foreground" data-testid="text-live-providers">
                     Providers
                   </div>
-                  {state.source ? (
-                    <Badge
-                      variant={state.source === "api" ? "secondary" : "outline"}
-                      className="rounded-full"
-                      data-testid="badge-live-source"
-                    >
-                      {state.source === "api" ? "API" : "Mock fallback"}
-                    </Badge>
-                  ) : null}
                 </div>
                 <div className="grid gap-2">
                   {providerToggles.map((p) => {
@@ -200,7 +195,7 @@ export default function LiveMapPage() {
                   </div>
                   {state.error ? (
                     <div className="text-xs text-muted-foreground" data-testid="text-live-error">
-                      Could not reach server. Using sample data.
+                      {state.error}
                     </div>
                   ) : null}
                 </div>
@@ -247,7 +242,7 @@ export default function LiveMapPage() {
                   {...({
                     style: (f: any) => {
                       const provider = f?.properties?.provider as string | undefined;
-                      const color = provider === "mema" ? "#2563eb" : provider === "mock" ? "#7c3aed" : "#0ea5e9";
+                      const color = provider === "mema" ? "#2563eb" : "#0ea5e9";
                       return {
                         color,
                         weight: 2,
@@ -257,7 +252,7 @@ export default function LiveMapPage() {
                     },
                     pointToLayer: (feature: any, latlng: any) => {
                       const provider = feature?.properties?.provider as string | undefined;
-                      const color = provider === "mema" ? "#2563eb" : provider === "mock" ? "#7c3aed" : "#0ea5e9";
+                      const color = provider === "mema" ? "#2563eb" : "#0ea5e9";
                       const L = (window as any).L;
                       if (L?.circleMarker) {
                         return L.circleMarker(latlng, {

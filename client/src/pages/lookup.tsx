@@ -6,30 +6,52 @@ import { Button } from "@/components/ui/button";
 import { Search, MapPin, History, Info, Sun, Activity } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { mockScores } from "@/lib/mockData";
+import { EmptyState } from "@/components/EmptyState";
+import { apiFetch } from "@/lib/api";
+
+type LookupResult = {
+  h3: string;
+  address: string;
+  score: number;
+  solar?: {
+    roof_tilt: number;
+    roof_azimuth: number;
+    shading_factor: number;
+    kwh_per_kw: number;
+  };
+  features?: {
+    events: number;
+    minutes_out: number;
+  };
+  top_reasons: string[];
+  history: { date: string; duration: string; cause: string }[];
+};
+
+type LookupResponse = {
+  results: LookupResult[];
+};
 
 export default function LookupPage() {
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
-  const [results, setResults] = useState<any[]>([]);
+  const [results, setResults] = useState<LookupResult[]>([]);
+  const [error, setError] = useState<string | undefined>();
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
     if (!query.trim()) return;
     setSearching(true);
-    // Simulate lookup across historical datasets
-    setTimeout(() => {
-      const scores = mockScores("30d");
-      setResults(scores.cells.slice(0, 3).map((c, i) => ({
-        ...c,
-        address: i === 0 ? "123 Main St, Worcester, MA" : i === 1 ? "45 High St, Springfield, MA" : "89 Oak Ave, Pittsfield, MA",
-        history: [
-          { date: "2023-12-14", duration: "142 min", cause: "Equipment Failure" },
-          { date: "2023-08-22", duration: "89 min", cause: "Severe Weather" },
-          { date: "2022-11-05", duration: "210 min", cause: "Tree Down" },
-        ]
-      })));
+    setError(undefined);
+    try {
+      const qs = new URLSearchParams();
+      qs.set("q", query.trim());
+      const data = await apiFetch<LookupResponse>(`/api/lookup?${qs.toString()}`);
+      setResults(data.results);
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to fetch lookup results");
+      setResults([]);
+    } finally {
       setSearching(false);
-    }, 600);
+    }
   };
 
   return (
@@ -98,12 +120,12 @@ export default function LookupPage() {
                     <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
                        <div className="text-muted-foreground">Roof Tilt: <span className="text-foreground font-medium">{r.solar?.roof_tilt?.toFixed(1)}°</span></div>
                        <div className="text-muted-foreground">Azimuth: <span className="text-foreground font-medium">{r.solar?.roof_azimuth?.toFixed(1)}°</span></div>
-                       <div className="text-muted-foreground">Shading: <span className="text-foreground font-medium">{(r.solar?.shading_factor * 100).toFixed(0)}%</span></div>
-                       <div className="text-muted-foreground">kWh/kW: <span className="text-foreground font-medium">{r.solar?.kwh_per_kw}</span></div>
+                       <div className="text-muted-foreground">Shading: <span className="text-foreground font-medium">{((r.solar?.shading_factor ?? 0) * 100).toFixed(0)}%</span></div>
+                       <div className="text-muted-foreground">kWh/kW: <span className="text-foreground font-medium">{r.solar?.kwh_per_kw ?? "—"}</span></div>
                     </div>
                     <div className="flex items-center justify-between text-xs pt-1 border-t border-yellow-500/10 mt-1">
                       <span className="font-medium text-yellow-700">Annual Est:</span>
-                      <span className="font-bold">{Math.round(r.solar?.kwh_per_kw * 6.5).toLocaleString()} kWh</span>
+                      <span className="font-bold">{Math.round((r.solar?.kwh_per_kw ?? 0) * 6.5).toLocaleString()} kWh</span>
                     </div>
                   </div>
 
@@ -158,10 +180,10 @@ export default function LookupPage() {
               </Card>
             ))}
           </div>
+        ) : error ? (
+          <EmptyState title="Error loading results" description={error} testId="state-lookup-error" />
         ) : !searching && query ? (
-          <div className="py-12 text-center text-muted-foreground">
-            No detailed results for "{query}" yet. Try searching by town name.
-          </div>
+          <EmptyState title={`No results for "${query}"`} description="Try searching by town name or H3 cell." testId="state-lookup-empty" />
         ) : null}
       </div>
     </AppShell>
