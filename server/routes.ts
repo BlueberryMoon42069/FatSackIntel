@@ -14,6 +14,39 @@ export async function registerRoutes(
   
   // ===== OUTAGES API =====
   
+  // Main outages endpoint for live map - returns GeoJSON FeatureCollection
+  app.get("/api/outages", async (req, res) => {
+    try {
+      const outages = await storage.getActiveOutages();
+      
+      // Convert database outages to GeoJSON FeatureCollection
+      const features = outages.map(outage => ({
+        type: "Feature" as const,
+        properties: {
+          id: outage.id,
+          provider: outage.provider,
+          customers: outage.customersAffected,
+          status: outage.status,
+          confidence: outage.confidence,
+          reportedAt: outage.reportedAt,
+        },
+        geometry: outage.geometry,
+      }));
+
+      res.json({
+        updatedAt: new Date().toISOString(),
+        providers: Array.from(new Set(outages.map(o => o.provider))),
+        features: {
+          type: "FeatureCollection",
+          features,
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching outages:", error);
+      res.status(500).json({ error: "Failed to fetch outages" });
+    }
+  });
+
   app.get("/api/outages/active", async (req, res) => {
     try {
       const outages = await storage.getActiveOutages();
@@ -174,6 +207,195 @@ export async function registerRoutes(
     }
   });
 
+  // ===== UNIFIED RANKINGS API =====
+  
+  // Returns all data aggregated into a unified ranking system
+  app.get("/api/rankings", async (req, res) => {
+    try {
+      const { town, minScore, sortBy = "finalScore", limit = "100" } = req.query;
+      
+      // Get all data sources
+      const [reliability, socialSignals, locations] = await Promise.all([
+        storage.getReliabilityMetrics(),
+        storage.getRecentSocialSignals(24),
+        storage.getTopLocations(parseInt(limit as string)),
+      ]);
+
+      // Build town-level aggregates from reliability data
+      const territoryScores = new Map<string, any>();
+      for (const metric of reliability) {
+        const key = metric.territory || metric.provider;
+        if (!territoryScores.has(key)) {
+          territoryScores.set(key, {
+            territory: key,
+            provider: metric.provider,
+            avgSAIDI: 0,
+            avgSAIFI: 0,
+            avgCAIDI: 0,
+            count: 0,
+            years: [],
+          });
+        }
+        const agg = territoryScores.get(key);
+        agg.avgSAIDI += metric.saidi || 0;
+        agg.avgSAIFI += metric.saifi || 0;
+        agg.avgCAIDI += metric.caidi || 0;
+        agg.count++;
+        agg.years.push(metric.year);
+      }
+
+      // Calculate averages
+      for (const [, agg] of Array.from(territoryScores)) {
+        if (agg.count > 0) {
+          agg.avgSAIDI /= agg.count;
+          agg.avgSAIFI /= agg.count;
+          agg.avgCAIDI /= agg.count;
+        }
+      }
+
+      // Build social signal aggregates by town
+      const townSocial = new Map<string, any>();
+      for (const signal of socialSignals) {
+        if (!townSocial.has(signal.town)) {
+          townSocial.set(signal.town, {
+            town: signal.town,
+            outageCount: 0,
+            billingCount: 0,
+            intentCount: 0,
+            avgUrgency: 0,
+            signals: [],
+          });
+        }
+        const agg = townSocial.get(signal.town);
+        if (signal.category === "outage") agg.outageCount++;
+        if (signal.category === "billing") agg.billingCount++;
+        if (signal.category === "intent") agg.intentCount++;
+        agg.signals.push(signal);
+      }
+
+      // Calculate urgency averages
+      for (const [, agg] of Array.from(townSocial)) {
+        if (agg.signals.length > 0) {
+          agg.avgUrgency = agg.signals.reduce((sum: number, s: any) => sum + s.urgency, 0) / agg.signals.length;
+        }
+      }
+
+      // Build unified rankings
+      const rankings = [];
+
+      // Add scored locations
+      for (const loc of locations) {
+        rankings.push({
+          id: loc.id,
+          type: "h3_cell",
+          name: loc.h3Cell,
+          lat: loc.lat,
+          lon: loc.lon,
+          knockScore: loc.finalScore,
+          outageScore: loc.outageScore,
+          socialScore: loc.socialScore,
+          solarScore: loc.solarScore,
+          outageEvents24h: loc.outageEvents24h,
+          socialMentions24h: loc.socialMentions24h,
+          updatedAt: loc.updatedAt,
+        });
+      }
+
+      // Add towns with social signals not already in locations
+      for (const [townName, social] of Array.from(townSocial)) {
+        const existing = rankings.find(r => r.name === townName);
+        if (!existing) {
+          // Calculate knock score from social signals
+          const socialScore = Math.min(1.0, (
+            social.outageCount * 0.1 +
+            social.intentCount * 0.05 +
+            social.billingCount * 0.02 +
+            social.avgUrgency * 0.3
+          ));
+          
+          rankings.push({
+            id: `town-${townName}`,
+            type: "town",
+            name: townName,
+            lat: null,
+            lon: null,
+            knockScore: socialScore,
+            outageScore: social.outageCount > 0 ? 0.7 : 0.3,
+            socialScore,
+            solarScore: 0.6, // Default for towns
+            outageEvents24h: social.outageCount,
+            socialMentions24h: social.signals.length,
+            socialData: {
+              outageCount: social.outageCount,
+              billingCount: social.billingCount,
+              intentCount: social.intentCount,
+              avgUrgency: social.avgUrgency,
+            },
+          });
+        }
+      }
+
+      // Add territories from reliability data
+      for (const [territory, data] of Array.from(territoryScores)) {
+        const existing = rankings.find(r => r.name === territory);
+        if (!existing) {
+          // Higher SAIDI = higher outage risk score
+          const outageScore = Math.min(1.0, data.avgSAIDI / 250);
+          
+          rankings.push({
+            id: `territory-${territory}`,
+            type: "territory",
+            name: territory,
+            provider: data.provider,
+            lat: null,
+            lon: null,
+            knockScore: outageScore,
+            outageScore,
+            socialScore: 0,
+            solarScore: 0.6,
+            reliabilityData: {
+              avgSAIDI: data.avgSAIDI,
+              avgSAIFI: data.avgSAIFI,
+              avgCAIDI: data.avgCAIDI,
+              yearsAnalyzed: data.count,
+            },
+          });
+        }
+      }
+
+      // Apply filters
+      let filtered = rankings;
+      
+      if (town) {
+        filtered = filtered.filter(r => 
+          r.name?.toLowerCase().includes((town as string).toLowerCase())
+        );
+      }
+      
+      if (minScore) {
+        const min = parseFloat(minScore as string);
+        filtered = filtered.filter(r => r.knockScore >= min);
+      }
+
+      // Sort
+      const sortKey = sortBy as string;
+      filtered.sort((a, b) => {
+        const aVal = (a as any)[sortKey] ?? 0;
+        const bVal = (b as any)[sortKey] ?? 0;
+        return bVal - aVal;
+      });
+
+      res.json({
+        updatedAt: new Date().toISOString(),
+        total: filtered.length,
+        rankings: filtered.slice(0, parseInt(limit as string)),
+      });
+    } catch (error) {
+      console.error("Error fetching rankings:", error);
+      res.status(500).json({ error: "Failed to fetch rankings" });
+    }
+  });
+
   // ===== ADMIN / SCRAPER CONTROL API =====
 
   app.post("/api/admin/scrape/providers", async (req, res) => {
@@ -199,7 +421,7 @@ export async function registerRoutes(
   app.post("/api/admin/import/historical", async (req, res) => {
     try {
       const result = await importHistoricalData();
-      res.json({ success: true, ...result });
+      res.json(result);
     } catch (error) {
       console.error("Error importing historical data:", error);
       res.status(500).json({ error: "Failed to import historical data" });
