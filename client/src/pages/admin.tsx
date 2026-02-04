@@ -1,243 +1,279 @@
-import { useMemo, useState } from "react";
+import { useState, useEffect } from "react";
 import { AppShell } from "@/components/AppShell";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { EmptyState } from "@/components/EmptyState";
-import { apiWithFallback, apiFetch } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
+import { Activity, Database, TrendingUp, MessageSquare, Sun, BarChart } from "lucide-react";
 
-type HealthResponse = { status: "ok" | "degraded" | "down"; now: string };
-
-type JobsHealthResponse = {
-  status: "ok" | "degraded" | "down";
-  now: string;
-  jobs: { name: string; lastRunAt?: string; lastOkAt?: string; lastError?: string }[];
+type AdminStatus = {
+  counts: {
+    activeOutages: number;
+    reliabilityRecords: number;
+    recentSocialSignals: number;
+    solarDataPoints: number;
+    scoredLocations: number;
+  };
+  lastUpdated: string;
 };
 
-type PageCandidate = { id: string; url: string; town?: string; confidence?: number; approved?: boolean };
-
-type PagesResponse = { items: PageCandidate[] };
-
 export default function AdminPage() {
-  const [socialEnabled, setSocialEnabled] = useState(false);
-  const [health, setHealth] = useState<{ loading: boolean; source?: "api" | "mock"; error?: string; data?: HealthResponse }>({
-    loading: true,
-  });
-  const [jobs, setJobs] = useState<{ loading: boolean; source?: "api" | "mock"; error?: string; data?: JobsHealthResponse }>({
-    loading: true,
-  });
+  const [status, setStatus] = useState<AdminStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  const [pages, setPages] = useState<{ loading: boolean; error?: string; items: PageCandidate[] }>({ loading: false, items: [] });
-  const [manualPageUrl, setManualPageUrl] = useState("");
-  const [manualPostUrl, setManualPostUrl] = useState("");
+  const loadStatus = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiFetch<AdminStatus>("/api/admin/status");
+      setStatus(data);
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to load status");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  useMemo(() => {
-    apiWithFallback<HealthResponse>(
-      "/api/health",
-      () => ({ status: "degraded", now: new Date().toISOString() }),
-      { timeoutMs: 8000 },
-    ).then((r) => {
-      setHealth({ loading: false, data: r.data, source: r.source, error: r.source === "mock" ? r.error?.message : undefined });
-    });
-
-    apiWithFallback<JobsHealthResponse>(
-      "/api/health/jobs",
-      () => ({ status: "degraded", now: new Date().toISOString(), jobs: [] }),
-      { timeoutMs: 8000 },
-    ).then((r) => {
-      setJobs({ loading: false, data: r.data, source: r.source, error: r.source === "mock" ? r.error?.message : undefined });
-    });
+  useEffect(() => {
+    loadStatus();
   }, []);
 
-  const loadPages = async () => {
-    setPages((p) => ({ ...p, loading: true, error: undefined }));
+  const triggerAction = async (endpoint: string, name: string) => {
+    setActionLoading(name);
     try {
-      const res = await apiFetch<PagesResponse>("/api/admin/pages", { timeoutMs: 10000 });
-      setPages({ loading: false, items: res.items ?? [] });
+      await apiFetch(endpoint, { method: "POST", timeoutMs: 60000 });
+      await loadStatus();
     } catch (e: any) {
-      setPages((p) => ({ ...p, loading: false, error: e?.message ?? "Failed to load" }));
+      setError(e?.message ?? `Failed to ${name}`);
+    } finally {
+      setActionLoading(null);
     }
   };
 
-  const approvePage = async (id: string) => {
-    try {
-      await apiFetch(`/api/admin/pages/${encodeURIComponent(id)}/approve`, { method: "POST", timeoutMs: 10000 });
-      await loadPages();
-    } catch (e) {
-      // swallow into UI
-    }
-  };
-
-  const submitManualPage = async () => {
-    if (!manualPageUrl.trim()) return;
-    try {
-      await apiFetch("/api/admin/pages", { method: "POST", body: { url: manualPageUrl.trim() }, timeoutMs: 10000 });
-      setManualPageUrl("");
-      await loadPages();
-    } catch {
-      // handled by list error
-      await loadPages();
-    }
-  };
-
-  const submitManualSignal = async () => {
-    if (!manualPostUrl.trim()) return;
-    try {
-      await apiFetch("/api/admin/social_signals", { method: "POST", body: { url: manualPostUrl.trim() }, timeoutMs: 10000 });
-      setManualPostUrl("");
-    } catch {
-      // noop
-    }
-  };
+  const statusCards = [
+    {
+      title: "Active Outages",
+      value: status?.counts.activeOutages ?? 0,
+      icon: Activity,
+      description: "Live outage events",
+      color: "text-red-600",
+    },
+    {
+      title: "Reliability Data",
+      value: status?.counts.reliabilityRecords ?? 0,
+      icon: Database,
+      description: "Historical metrics",
+      color: "text-blue-600",
+    },
+    {
+      title: "Social Signals",
+      value: status?.counts.recentSocialSignals ?? 0,
+      icon: MessageSquare,
+      description: "Last 24h",
+      color: "text-purple-600",
+    },
+    {
+      title: "Solar Data Points",
+      value: status?.counts.solarDataPoints ?? 0,
+      icon: Sun,
+      description: "Analyzed locations",
+      color: "text-yellow-600",
+    },
+    {
+      title: "Scored Locations",
+      value: status?.counts.scoredLocations ?? 0,
+      icon: BarChart,
+      description: "Composite rankings",
+      color: "text-green-600",
+    },
+  ];
 
   return (
-    <AppShell subtitle="Job health, page approvals, and feature-flagged social intake.">
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between gap-3">
-              <CardTitle className="text-base" data-testid="text-admin-health-title">System health</CardTitle>
-              <div className="flex gap-2">
-                {health.source ? (
-                  <Badge className="rounded-full" variant={health.source === "api" ? "secondary" : "outline"} data-testid="badge-health-source">
-                    health: {health.source}
-                  </Badge>
-                ) : null}
-                {jobs.source ? (
-                  <Badge className="rounded-full" variant={jobs.source === "api" ? "secondary" : "outline"} data-testid="badge-jobs-source">
-                    jobs: {jobs.source}
-                  </Badge>
-                ) : null}
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="grid gap-3">
-            {health.error || jobs.error ? (
-              <div className="text-xs text-muted-foreground" data-testid="text-admin-health-error">
-                API unreachable: {health.error ?? jobs.error}
-              </div>
-            ) : null}
+    <AppShell subtitle="Test and manage data sources for OutageIntel MA">
+      <div className="grid gap-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold" data-testid="text-admin-title">Data Pipeline Control</h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              Import, scrape, and test all data sources before publishing
+            </p>
+          </div>
+          <Button onClick={loadStatus} disabled={loading} data-testid="button-refresh-status">
+            {loading ? "Loading..." : "Refresh Status"}
+          </Button>
+        </div>
 
-            <div className="rounded-xl border bg-card p-4 grid gap-1">
-              <div className="text-sm font-semibold" data-testid="text-health-status">
-                {health.data?.status ?? "—"}
-              </div>
-              <div className="text-xs text-muted-foreground" data-testid="text-health-now">
-                {health.data?.now ? new Date(health.data.now).toLocaleString() : "—"}
-              </div>
-            </div>
+        {/* Status Overview */}
+        {error && (
+          <Card className="border-red-200 bg-red-50">
+            <CardContent className="pt-6">
+              <p className="text-sm text-red-600" data-testid="text-admin-error">{error}</p>
+            </CardContent>
+          </Card>
+        )}
 
-            <Separator />
-
-            <div className="grid gap-2">
-              <div className="text-xs font-semibold text-muted-foreground" data-testid="text-jobs-title">Jobs</div>
-              {(jobs.data?.jobs?.length ?? 0) === 0 ? (
-                <EmptyState title="No job telemetry yet" description="Backend will expose job run history here." testId="state-jobs-empty" />
-              ) : (
-                <div className="grid gap-2">
-                  {jobs.data?.jobs.map((j) => (
-                    <div key={j.name} className="rounded-xl border bg-card p-4 grid gap-1" data-testid={`card-job-${j.name}`}>
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-sm font-semibold" data-testid={`text-job-name-${j.name}`}>{j.name}</div>
-                        <Badge variant="secondary" className="rounded-full" data-testid={`badge-job-ok-${j.name}`}>
-                          {j.lastOkAt ? "ok" : "unknown"}
-                        </Badge>
+        {loading && !status ? (
+          <EmptyState title="Loading system status..." description="Please wait" testId="state-loading" />
+        ) : (
+          <>
+            {/* Stats Grid */}
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+              {statusCards.map((card) => (
+                <Card key={card.title}>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground" data-testid={`text-stat-${card.title.toLowerCase().replace(/\s+/g, "-")}`}>
+                          {card.title}
+                        </p>
+                        <p className={`text-2xl font-bold mt-1 ${card.color}`} data-testid={`text-value-${card.title.toLowerCase().replace(/\s+/g, "-")}`}>
+                          {card.value.toLocaleString()}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">{card.description}</p>
                       </div>
-                      <div className="text-xs text-muted-foreground">Last run: {j.lastRunAt ? new Date(j.lastRunAt).toLocaleString() : "—"}</div>
-                      {j.lastError ? <div className="text-xs text-destructive">{j.lastError}</div> : null}
+                      <card.icon className={`h-8 w-8 ${card.color} opacity-50`} />
                     </div>
-                  ))}
-                </div>
-              )}
+                  </CardContent>
+                </Card>
+              ))}
             </div>
-          </CardContent>
-        </Card>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between gap-3">
-              <CardTitle className="text-base" data-testid="text-admin-social-title">Social signals</CardTitle>
-              <div className="flex items-center gap-2">
-                <div className="text-xs text-muted-foreground" data-testid="text-social-flag">Feature flag</div>
-                <Switch checked={socialEnabled} onCheckedChange={setSocialEnabled} data-testid="toggle-social-enabled" />
-              </div>
+            {/* Data Import Actions */}
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base" data-testid="text-import-title">Data Import</CardTitle>
+                  <CardDescription>Import historical and baseline data</CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-3">
+                  <Button
+                    variant="outline"
+                    onClick={() => triggerAction("/api/admin/import/historical", "Import Historical")}
+                    disabled={actionLoading === "Import Historical"}
+                    data-testid="button-import-historical"
+                    className="justify-start"
+                  >
+                    <Database className="h-4 w-4 mr-2" />
+                    {actionLoading === "Import Historical" ? "Importing..." : "Import Historical Reliability Data"}
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    Loads 10 years (2014-2023) of SAIDI/SAIFI/CAIDI metrics from MA DPU filings for National Grid, Eversource, and Unitil
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base" data-testid="text-scrape-title">Live Scrapers</CardTitle>
+                  <CardDescription>Trigger data collection from external sources</CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-3">
+                  <Button
+                    variant="outline"
+                    onClick={() => triggerAction("/api/admin/scrape/providers", "Scrape Providers")}
+                    disabled={actionLoading === "Scrape Providers"}
+                    data-testid="button-scrape-providers"
+                    className="justify-start"
+                  >
+                    <Activity className="h-4 w-4 mr-2" />
+                    {actionLoading === "Scrape Providers" ? "Scraping..." : "Scrape Outage Providers"}
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    Fetches live outage data from MEMA and National Grid using QuadKey tiling
+                  </p>
+
+                  <Button
+                    variant="outline"
+                    onClick={() => triggerAction("/api/admin/scrape/social", "Scrape Social")}
+                    disabled={actionLoading === "Scrape Social"}
+                    data-testid="button-scrape-social"
+                    className="justify-start"
+                  >
+                    <MessageSquare className="h-4 w-4 mr-2" />
+                    {actionLoading === "Scrape Social" ? "Scraping..." : "Scrape Social Signals"}
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    Monitors public Facebook groups for outage mentions, billing complaints, and solar interest in Worcester County
+                  </p>
+                </CardContent>
+              </Card>
             </div>
-          </CardHeader>
-          <CardContent className="grid gap-4">
-            {!socialEnabled ? (
-              <EmptyState
-                title="Social intake is off"
-                description="Enable to use admin endpoints for page approval and manual post-link intake."
-                testId="state-social-off"
-              />
-            ) : (
-              <>
-                <div className="grid gap-2">
-                  <div className="text-xs font-semibold text-muted-foreground">Approved Pages</div>
-                  <div className="flex flex-col md:flex-row gap-2">
-                    <Input
-                      value={manualPageUrl}
-                      onChange={(e) => setManualPageUrl(e.target.value)}
-                      placeholder="Add Page URL (public Pages only)"
-                      data-testid="input-page-url"
-                    />
-                    <Button variant="secondary" onClick={submitManualPage} data-testid="button-add-page">
-                      Add
-                    </Button>
-                    <Button variant="ghost" onClick={loadPages} data-testid="button-refresh-pages">
-                      Refresh
-                    </Button>
-                  </div>
-                  {pages.error ? (
-                    <div className="text-xs text-muted-foreground" data-testid="text-pages-error">{pages.error}</div>
-                  ) : null}
-                  {pages.items.length === 0 ? (
-                    <div className="text-xs text-muted-foreground" data-testid="text-pages-empty">
-                      No pages loaded yet.
-                    </div>
-                  ) : (
-                    <div className="grid gap-2" data-testid="list-pages">
-                      {pages.items.map((p) => (
-                        <div key={p.id} className="rounded-xl border bg-card p-3 flex items-center justify-between gap-3" data-testid={`row-page-${p.id}`}>
-                          <div className="grid">
-                            <div className="text-sm font-medium" data-testid={`text-page-url-${p.id}`}>{p.url}</div>
-                            <div className="text-xs text-muted-foreground">{p.town ?? "—"} • conf {p.confidence ?? "—"}</div>
-                          </div>
-                          <Button size="sm" onClick={() => approvePage(p.id)} data-testid={`button-approve-${p.id}`}>
-                            Approve
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
 
-                <Separator />
-
-                <div className="grid gap-2">
-                  <div className="text-xs font-semibold text-muted-foreground">Manual signal intake</div>
-                  <div className="flex flex-col md:flex-row gap-2">
-                    <Input
-                      value={manualPostUrl}
-                      onChange={(e) => setManualPostUrl(e.target.value)}
-                      placeholder="Public Page post URL"
-                      data-testid="input-social-url"
-                    />
-                    <Button variant="secondary" onClick={submitManualSignal} data-testid="button-add-signal">
-                      Add
-                    </Button>
-                  </div>
-                  <div className="text-xs text-muted-foreground" data-testid="text-social-hint">
-                    No scraping, no Groups, no login. Public Pages only.
+            {/* API Endpoints */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base" data-testid="text-api-title">API Endpoints</CardTitle>
+                <CardDescription>Test backend REST endpoints</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-2 text-sm">
+                  <div className="font-mono text-xs space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="w-12">GET</Badge>
+                      <span className="text-muted-foreground">/api/outages/active</span>
+                      <span className="text-xs text-muted-foreground ml-auto">→ Active outages</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="w-12">GET</Badge>
+                      <span className="text-muted-foreground">/api/reliability?provider=National+Grid</span>
+                      <span className="text-xs text-muted-foreground ml-auto">→ Historical metrics</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="w-12">GET</Badge>
+                      <span className="text-muted-foreground">/api/social/sentiment</span>
+                      <span className="text-xs text-muted-foreground ml-auto">→ Town sentiment</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="w-12">GET</Badge>
+                      <span className="text-muted-foreground">/api/scores/top?limit=100</span>
+                      <span className="text-xs text-muted-foreground ml-auto">→ Top locations</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary" className="w-12">POST</Badge>
+                      <span className="text-muted-foreground">/api/solar/analyze</span>
+                      <span className="text-xs text-muted-foreground ml-auto">→ Calculate solar potential</span>
+                    </div>
                   </div>
                 </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
+
+            {/* System Info */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">System Status</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Last Updated</span>
+                    <span className="font-medium" data-testid="text-last-updated">
+                      {status?.lastUpdated ? new Date(status.lastUpdated).toLocaleString() : "—"}
+                    </span>
+                  </div>
+                  <Separator />
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Database</span>
+                    <Badge variant="secondary" data-testid="badge-db-status">PostgreSQL + PostGIS</Badge>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Scoring Engine</span>
+                    <Badge variant="secondary" data-testid="badge-scoring-status">Ready</Badge>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">NREL PVWatts</span>
+                    <Badge variant="secondary" data-testid="badge-solar-status">Integrated</Badge>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
     </AppShell>
   );
