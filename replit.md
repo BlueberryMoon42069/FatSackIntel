@@ -69,3 +69,27 @@ Preferred communication style: Simple, everyday language.
 - `h3-js`: Uber's H3 hexagonal grid system (implied by H3 cell references)
 - `wouter`: Lightweight React router
 - Full shadcn/ui component set via Radix primitives
+
+## Recent Changes (Feb 2026)
+
+### Unified Rankings System
+- Built `/api/rankings` endpoint that aggregates all data sources into unified town/territory rankings
+- Combines reliability metrics (SAIDI/SAIFI/CAIDI), social signals (outage/billing/intent keywords), and solar potential into composite "Knock Score"
+- Supports filtering by town, minimum score, and sorting by any score component
+
+### Admin Data Pipeline
+- Added `/admin` page for data pipeline control and testing
+- Import historical reliability data from embedded 2014-2023 MA DPU filings
+- Trigger social signal scraping for Worcester County towns
+- Monitor system status (outages, reliability records, social signals, solar data)
+
+### Live Outage Map
+- Fixed `/api/outages` to return proper GeoJSON FeatureCollection
+- Map displays active outages from MEMA and National Grid providers with provider toggles
+
+### Key API Endpoints
+- `GET /api/rankings` - Unified rankings (town, minScore, sortBy, limit params)
+- `GET /api/outages` - GeoJSON active outages for map display
+- `GET /api/admin/status` - Data pipeline status counts
+- `POST /api/admin/import-historical` - Import reliability data
+- `POST /api/admin/scrape-social` - Trigger social scraper
