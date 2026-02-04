@@ -38,7 +38,8 @@ export class ProviderManager {
   }
 
   async scrapeAll(): Promise<void> {
-    const promises = Array.from(this.providers.keys()).map(key => 
+    const keys = Array.from(this.providers.keys());
+    const promises = keys.map(key => 
       this.scrapeProvider(key).catch(error => {
         console.error(`Error scraping ${key}:`, error);
       })
@@ -50,7 +51,8 @@ export class ProviderManager {
   startAutoScraping(): void {
     console.log("Starting auto-scraping for all providers...");
     
-    for (const [key, provider] of this.providers.entries()) {
+    const entries = Array.from(this.providers.entries());
+    for (const [key, provider] of entries) {
       // Initial scrape
       this.scrapeProvider(key).catch(error => {
         console.error(`Initial scrape failed for ${key}:`, error);
@@ -72,7 +74,8 @@ export class ProviderManager {
 
   stopAutoScraping(): void {
     console.log("Stopping auto-scraping...");
-    for (const interval of this.intervals.values()) {
+    const intervals = Array.from(this.intervals.values());
+    for (const interval of intervals) {
       clearInterval(interval);
     }
     this.intervals.clear();

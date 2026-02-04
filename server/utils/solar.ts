@@ -188,7 +188,7 @@ export class SolarCalculator {
     try {
       const solarData = await this.analyzeSolarPotential(lat, lon, options);
       await storage.createOrUpdateSolarData(solarData);
-      console.log(`Solar data stored for ${lat},${lon} - Score: ${solarData.solarScore.toFixed(1)}`);
+      console.log(`Solar data stored for ${lat},${lon} - Score: ${(solarData.solarScore ?? 0).toFixed(1)}`);
     } catch (error) {
       console.error("Error storing solar data:", error);
     }
