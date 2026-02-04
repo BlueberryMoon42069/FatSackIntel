@@ -344,18 +344,61 @@ export async function registerRoutes(
   // ===== UNIFIED RANKINGS API =====
   
   // Returns all data aggregated into a unified ranking system
+  // Uses real DPU historical outage data for outage risk scoring
   app.get("/api/rankings", async (req, res) => {
     try {
       const { town, minScore, sortBy = "finalScore", limit = "100" } = req.query;
       
-      // Get all data sources
-      const [reliability, socialSignals, locations] = await Promise.all([
+      // Get all data sources including historical outages
+      const [reliability, socialSignals, locations, historicalOutages] = await Promise.all([
         storage.getReliabilityMetrics(),
         storage.getRecentSocialSignals(24),
         storage.getTopLocations(parseInt(limit as string)),
+        storage.getHistoricalOutages({ limit: 50000 }), // Get all historical records
       ]);
 
-      // Build town-level aggregates from reliability data
+      // Build town-level historical outage aggregates (REAL DPU DATA)
+      const townHistorical = new Map<string, {
+        town: string;
+        totalIncidents: number;
+        totalCustomers: number;
+        totalDuration: number;
+        avgDuration: number;
+        utilities: Set<string>;
+        years: Set<number>;
+      }>();
+      
+      for (const outage of historicalOutages) {
+        const townKey = outage.town?.toUpperCase();
+        if (!townKey) continue;
+        
+        if (!townHistorical.has(townKey)) {
+          townHistorical.set(townKey, {
+            town: townKey,
+            totalIncidents: 0,
+            totalCustomers: 0,
+            totalDuration: 0,
+            avgDuration: 0,
+            utilities: new Set(),
+            years: new Set(),
+          });
+        }
+        const agg = townHistorical.get(townKey)!;
+        agg.totalIncidents++;
+        agg.totalCustomers += outage.customersOut || 0;
+        agg.totalDuration += outage.durationHours || 0;
+        if (outage.utility) agg.utilities.add(outage.utility);
+        if (outage.year) agg.years.add(outage.year);
+      }
+      
+      // Calculate averages for historical data
+      for (const [, agg] of Array.from(townHistorical)) {
+        if (agg.totalIncidents > 0) {
+          agg.avgDuration = agg.totalDuration / agg.totalIncidents;
+        }
+      }
+
+      // Build territory-level aggregates from SAIDI/SAIFI data
       const territoryScores = new Map<string, any>();
       for (const metric of reliability) {
         const key = metric.territory || metric.provider;
@@ -378,7 +421,7 @@ export async function registerRoutes(
         agg.years.push(metric.year);
       }
 
-      // Calculate averages
+      // Calculate averages for reliability metrics
       for (const [, agg] of Array.from(territoryScores)) {
         if (agg.count > 0) {
           agg.avgSAIDI /= agg.count;
@@ -435,11 +478,67 @@ export async function registerRoutes(
         });
       }
 
-      // Add towns with social signals not already in locations
+      // Add towns with historical outage data (PRIMARY DATA SOURCE - real DPU filings)
+      // This is the most important data source for "Knock Now" scoring
+      const maxIncidents = Math.max(...Array.from(townHistorical.values()).map(t => t.totalIncidents), 1);
+      
+      for (const [townKey, historical] of Array.from(townHistorical)) {
+        // Check if already added via locations
+        const existing = rankings.find(r => r.name?.toUpperCase() === townKey);
+        if (existing) continue;
+        
+        // Calculate outage score based on incident frequency and severity
+        // Higher incidents = higher score (more sales opportunity)
+        const incidentRatio = historical.totalIncidents / maxIncidents;
+        const durationFactor = Math.min(1.0, historical.avgDuration / 10); // Normalize by 10 hour avg
+        const outageScore = Math.min(1.0, (incidentRatio * 0.7 + durationFactor * 0.3));
+        
+        // Check for social signals for this town
+        const social = townSocial.get(townKey) || townSocial.get(historical.town);
+        const socialScore = social ? Math.min(1.0, (
+          social.outageCount * 0.1 +
+          social.intentCount * 0.05 +
+          social.billingCount * 0.02 +
+          social.avgUrgency * 0.3
+        )) : 0;
+        
+        // Final knock score: outage risk (50%) + social signals (30%) + solar potential (20%)
+        const solarScore = 0.65; // MA average solar potential
+        const knockScore = outageScore * 0.5 + socialScore * 0.3 + solarScore * 0.2;
+        
+        const townCoords = townCentroids[townKey];
+        rankings.push({
+          id: `town-${townKey}`,
+          type: "town",
+          name: townKey,
+          lat: townCoords ? townCoords[1] : null,
+          lon: townCoords ? townCoords[0] : null,
+          knockScore,
+          outageScore,
+          socialScore,
+          solarScore,
+          historicalData: {
+            totalIncidents: historical.totalIncidents,
+            totalCustomers: historical.totalCustomers,
+            avgDuration: historical.avgDuration,
+            utilities: Array.from(historical.utilities),
+            years: Array.from(historical.years),
+            dataSource: "DPU Outage Accident Reports",
+          },
+          socialData: social ? {
+            outageCount: social.outageCount,
+            billingCount: social.billingCount,
+            intentCount: social.intentCount,
+            avgUrgency: social.avgUrgency,
+          } : null,
+        });
+      }
+
+      // Add towns with social signals only (not in historical data)
       for (const [townName, social] of Array.from(townSocial)) {
-        const existing = rankings.find(r => r.name === townName);
+        const existing = rankings.find(r => r.name === townName || r.name === townName.toUpperCase());
         if (!existing) {
-          // Calculate knock score from social signals
+          // Calculate knock score from social signals only
           const socialScore = Math.min(1.0, (
             social.outageCount * 0.1 +
             social.intentCount * 0.05 +
@@ -447,19 +546,17 @@ export async function registerRoutes(
             social.avgUrgency * 0.3
           ));
           
-          const townCoords = townCentroids[townName];
+          const townCoords = townCentroids[townName] || townCentroids[townName.toUpperCase()];
           rankings.push({
             id: `town-${townName}`,
             type: "town",
             name: townName,
             lat: townCoords ? townCoords[1] : null,
             lon: townCoords ? townCoords[0] : null,
-            knockScore: socialScore,
-            outageScore: social.outageCount > 0 ? 0.7 : 0.3,
+            knockScore: socialScore * 0.3 + 0.65 * 0.2, // Social + default solar only
+            outageScore: 0, // No historical data
             socialScore,
-            solarScore: 0.6, // Default for towns
-            outageEvents24h: social.outageCount,
-            socialMentions24h: social.signals.length,
+            solarScore: 0.65,
             socialData: {
               outageCount: social.outageCount,
               billingCount: social.billingCount,
@@ -470,7 +567,7 @@ export async function registerRoutes(
         }
       }
 
-      // Add territories from reliability data
+      // Add territories from reliability data (legacy support)
       for (const [territory, data] of Array.from(territoryScores)) {
         const existing = rankings.find(r => r.name === territory);
         if (!existing) {
