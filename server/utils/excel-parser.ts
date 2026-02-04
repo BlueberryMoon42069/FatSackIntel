@@ -116,8 +116,23 @@ function getColumnValue(row: any, ...possibleNames: string[]): any {
     const keys = Object.keys(row);
     const match = keys.find(k => k.toLowerCase() === name.toLowerCase());
     if (match) return row[match];
+    // Try partial match (column name contains the search term)
+    const partialMatch = keys.find(k => k.toLowerCase().includes(name.toLowerCase()));
+    if (partialMatch) return row[partialMatch];
   }
   return undefined;
+}
+
+// Detect utility from company name in row or filename
+function detectUtilityFromRow(row: any, filename: string): string {
+  const companyName = getColumnValue(row, 'Company Name', 'Company', 'Utility');
+  if (companyName) {
+    const lower = String(companyName).toLowerCase();
+    if (lower.includes('eversource') || lower.includes('ema') || lower.includes('wma')) return 'Eversource';
+    if (lower.includes('national') || lower.includes('ngrid')) return 'National Grid';
+    if (lower.includes('unitil')) return 'Unitil';
+  }
+  return detectUtilityFromFilename(filename);
 }
 
 export function parseOutageReport(buffer: Buffer, filename: string): ParseResult {
@@ -153,49 +168,56 @@ export function parseOutageReport(buffer: Buffer, filename: string): ParseResult
       
       try {
         // Get town - required field
-        const town = normalizeString(getColumnValue(row, 'Town', 'TOWN', 'City', 'CITY', 'Municipality'));
+        // Actual column names from DPU reports: "City/Town", "Town", etc.
+        const town = normalizeString(getColumnValue(row, 'City/Town', 'Town', 'TOWN', 'City', 'CITY', 'Municipality'));
         if (!town) {
           skippedRows++;
           continue; // Skip rows without town
         }
         
         // Skip header rows that might have been parsed
-        if (town.toLowerCase() === 'town' || town.toLowerCase() === 'city') {
+        if (town.toLowerCase() === 'town' || town.toLowerCase() === 'city' || town.toLowerCase() === 'city/town') {
           skippedRows++;
           continue;
         }
         
-        const reportDateVal = getColumnValue(row, 'Report Date', 'REPORT DATE', 'Date Reported');
-        const incidentStartVal = getColumnValue(row, 'Incident Start', 'INCIDENT START', 'Start Time', 'START');
-        const incidentEndVal = getColumnValue(row, 'Incident End', 'INCIDENT END', 'End Time', 'END');
+        // Column mapping for actual DPU Outage_Accident_Report format:
+        // "Date Filed", "Date and Time Out", "Date And Time In", "Actual Duration", etc.
+        const reportDateVal = getColumnValue(row, 'Date Filed', 'Report Date', 'Date Reported');
+        const incidentStartVal = getColumnValue(row, 'Date and Time Out', 'Date Time Out', 'Incident Start', 'Start Time');
+        const incidentEndVal = getColumnValue(row, 'Date And Time In', 'Date Time In', 'Incident End', 'End Time');
         
         const year = extractYear(incidentStartVal || reportDateVal);
         
+        // Detect utility from row data if possible
+        const rowUtility = detectUtilityFromRow(row, filename);
+        
         const record: InsertHistoricalOutage = {
-          utility,
+          utility: rowUtility,
           year,
           reportDate: parseDate(reportDateVal),
-          region: normalizeString(getColumnValue(row, 'Region', 'REGION', 'Area')),
-          awc: normalizeString(getColumnValue(row, 'AWC', 'Area Work Center', 'Work Center')),
+          region: normalizeString(getColumnValue(row, 'Company Name', 'Region', 'District/Division')),
+          awc: normalizeString(getColumnValue(row, 'District/Division', 'AWC', 'Area Work Center')),
           town,
           street: normalizeString(getColumnValue(row, 'Street', 'STREET', 'Address', 'Location')),
-          station: normalizeString(getColumnValue(row, 'Station', 'STATION', 'Substation')),
-          feeder: normalizeString(getColumnValue(row, 'Feeder', 'FEEDER', 'Circuit')),
-          protectiveDevice: normalizeString(getColumnValue(row, 'Protective Device', 'PROTECTIVE DEVICE', 'Device')),
-          voltage: normalizeString(getColumnValue(row, 'Voltage', 'VOLTAGE', 'kV')),
-          ohUg: normalizeString(getColumnValue(row, 'OH/UG', 'OHUG', 'Type')),
-          customersOut: normalizeInteger(getColumnValue(row, 'Customers Out', 'CUSTOMERS OUT', 'Customers Affected', 'Cust Out')),
-          injuries: normalizeInteger(getColumnValue(row, 'Injuries', 'INJURIES', 'Injury Count')) || 0,
-          durationHours: normalizeNumber(getColumnValue(row, 'Duration (hrs)', 'Duration', 'DURATION', 'Hours')),
-          customerMinutes: normalizeNumber(getColumnValue(row, 'Customer Minutes', 'CUSTOMER MINUTES', 'CMI')),
+          station: normalizeString(getColumnValue(row, 'Substation/ID', 'Station', 'Substation')),
+          feeder: normalizeString(getColumnValue(row, 'Circuit Number', 'Feeder', 'Circuit')),
+          protectiveDevice: normalizeString(getColumnValue(row, 'Circuit Branch', 'Protective Device', 'Device')),
+          voltage: normalizeString(getColumnValue(row, 'Voltage Levels', 'Voltage', 'kV')),
+          ohUg: normalizeString(getColumnValue(row, 'Circuit Type', 'OH/UG', 'Type')),
+          // Use "Original Number Customers Affected" as primary customers count
+          customersOut: normalizeInteger(getColumnValue(row, 'Original Number Customers Affected', 'Customers Out', 'Customers Affected')),
+          injuries: normalizeString(getColumnValue(row, 'Injury', 'Injuries')) === 'Y' ? 1 : 0,
+          durationHours: normalizeNumber(getColumnValue(row, 'Actual Duration', 'Duration', 'Duration (hrs)')),
+          customerMinutes: normalizeNumber(getColumnValue(row, 'Total Customers Outage Hours', 'Customer Minutes', 'CMI')),
           incidentStart: parseDate(incidentStartVal),
           incidentEnd: parseDate(incidentEndVal),
-          cause: normalizeString(getColumnValue(row, 'Cause', 'CAUSE', 'Outage Cause')),
-          failedComponent: normalizeString(getColumnValue(row, 'Failed Component', 'FAILED COMPONENT', 'Component')),
-          weather: normalizeString(getColumnValue(row, 'Weather', 'WEATHER', 'Weather Condition')),
-          majorEvent: normalizeString(getColumnValue(row, 'Major Event', 'MAJOR EVENT', 'MED')),
-          plannedOutage: normalizeString(getColumnValue(row, 'Planned', 'PLANNED', 'Planned Outage')),
-          draftIncidentNumber: normalizeString(getColumnValue(row, 'Draft Incident #', 'Incident Number', 'Incident ID')),
+          cause: normalizeString(getColumnValue(row, 'Reason For Outage', 'Cause', 'Outage Cause')),
+          failedComponent: normalizeString(getColumnValue(row, 'Failed or Damaged Equipment', 'Failed Component', 'Component')),
+          weather: normalizeString(getColumnValue(row, 'Weather Condition', 'Weather')),
+          majorEvent: normalizeString(getColumnValue(row, 'Major Excludable Emergency', 'Major Event', 'MED')),
+          plannedOutage: normalizeString(getColumnValue(row, 'Planned/Unplanned/Intentional', 'Planned')),
+          draftIncidentNumber: normalizeString(getColumnValue(row, 'Incident ID', 'Draft Incident #', 'Incident Number')),
         };
         
         records.push(record);
