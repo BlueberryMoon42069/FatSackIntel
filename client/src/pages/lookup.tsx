@@ -3,7 +3,7 @@ import { AppShell } from "@/components/AppShell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, MapPin, History, Info, Sun } from "lucide-react";
+import { Search, MapPin, History, Info, Sun, Activity } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { mockScores } from "@/lib/mockData";
@@ -104,6 +104,25 @@ export default function LookupPage() {
                     <div className="flex items-center justify-between text-xs pt-1 border-t border-yellow-500/10 mt-1">
                       <span className="font-medium text-yellow-700">Annual Est:</span>
                       <span className="font-bold">{Math.round(r.solar?.kwh_per_kw * 6.5).toLocaleString()} kWh</span>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div className="grid gap-2">
+                    <div className="text-xs font-semibold flex items-center gap-1 text-blue-700">
+                      <Activity className="h-3 w-3" />
+                      Outage Intelligence
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="rounded border bg-card p-2">
+                        <div className="text-[10px] text-muted-foreground uppercase">Events</div>
+                        <div className="font-bold">{r.features?.events}</div>
+                      </div>
+                      <div className="rounded border bg-card p-2">
+                        <div className="text-[10px] text-muted-foreground uppercase">Min Out</div>
+                        <div className="font-bold">{r.features?.minutes_out}</div>
+                      </div>
                     </div>
                   </div>
 
