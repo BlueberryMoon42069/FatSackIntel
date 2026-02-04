@@ -49,6 +49,83 @@ export type ScoreCell = {
   };
 };
 
+export type SocialPost = {
+  id: string;
+  source: string;
+  town: string;
+  text: string;
+  timestamp: string;
+  category: "outage" | "billing" | "intent" | "general";
+  urgency: number; // 0-1
+};
+
+export type SocialTownMetric = {
+  town: string;
+  score: number;
+  volume_24h: number;
+  trend: "up" | "down" | "flat";
+  top_keywords: string[];
+  posts: SocialPost[];
+};
+
+export type SocialSignalsResponse = {
+  updatedAt: string;
+  towns: SocialTownMetric[];
+};
+
+export function mockSocialSignals(): SocialSignalsResponse {
+  const towns = [
+    "Clinton", "Westborough", "Lancaster", "Berlin", 
+    "Northborough", "Southborough", "Hopkinton", "Worcester"
+  ];
+  
+  const generatePosts = (town: string): SocialPost[] => {
+    return [
+      {
+        id: `fb-${town}-1`,
+        source: `${town} Community Board`,
+        town,
+        text: "Still no power on Main St! Anyone else?",
+        timestamp: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
+        category: "outage",
+        urgency: 0.9
+      },
+      {
+        id: `fb-${town}-2`,
+        source: `Concerned Citizens of ${town}`,
+        town,
+        text: "My National Grid bill went up $40 this month. Delivery charges are insane.",
+        timestamp: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
+        category: "billing",
+        urgency: 0.6
+      },
+      {
+        id: `fb-${town}-3`,
+        source: `${town} Talk`,
+        town,
+        text: "Thinking about getting a generator. Any recommendations?",
+        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString(),
+        category: "intent",
+        urgency: 0.4
+      }
+    ];
+  };
+
+  const metrics: SocialTownMetric[] = towns.map((town, i) => ({
+    town,
+    score: 0.85 - (i * 0.08),
+    volume_24h: 45 - (i * 4),
+    trend: i % 3 === 0 ? "up" : i % 3 === 1 ? "down" : "flat",
+    top_keywords: ["power out", "national grid", "generator"],
+    posts: generatePosts(town)
+  }));
+
+  return {
+    updatedAt: new Date().toISOString(),
+    towns: metrics.sort((a, b) => b.score - a.score)
+  };
+}
+
 export type ScoresApiResponse = {
   updatedAt: string;
   window: ScoreWindow;

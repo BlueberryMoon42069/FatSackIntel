@@ -11,11 +11,13 @@ import {
   FileText,
   Shield,
   Search,
+  MessageSquare,
 } from "lucide-react";
 
 const nav = [
   { href: "/", label: "Live Outage Map", icon: Map, testId: "link-nav-map" },
   { href: "/rankings", label: "Knock Now", icon: ListOrdered, testId: "link-nav-rankings" },
+  { href: "/social", label: "Social Pulse", icon: MessageSquare, testId: "link-nav-social" },
   { href: "/lookup", label: "Lookup", icon: Search, testId: "link-nav-lookup" },
   { href: "/documents", label: "Historical Directory", icon: FileText, testId: "link-nav-docs" },
   { href: "/layers", label: "Layers", icon: Layers, testId: "link-nav-layers" },
