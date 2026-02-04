@@ -1,6 +1,5 @@
 import { db } from "../storage";
-import { outages, reliabilityMetrics, socialSignals, solarData } from "@shared/schema";
-import { importHistoricalData } from "./historical-import";
+import { outages, socialSignals, solarData, historicalOutages } from "@shared/schema";
 import { providerManager } from "../scrapers/index";
 import { socialScraper } from "../scrapers/social";
 import { sql } from "drizzle-orm";
@@ -20,48 +19,42 @@ export async function autoPopulateOnStartup(): Promise<void> {
 
   hasRunAutoPopulate = true;
 
-  console.log("[auto-populate] Checking if database needs initial population...");
+  console.log("[auto-populate] Checking database status...");
 
   try {
-    const [outagesEmpty, reliabilityEmpty, socialEmpty, solarEmpty] = await Promise.all([
+    const [outagesEmpty, socialEmpty, solarEmpty, historicalEmpty] = await Promise.all([
       isTableEmpty(outages),
-      isTableEmpty(reliabilityMetrics),
       isTableEmpty(socialSignals),
       isTableEmpty(solarData),
+      isTableEmpty(historicalOutages),
     ]);
 
-    console.log(`[auto-populate] Table status - outages: ${outagesEmpty ? 'empty' : 'has data'}, reliability: ${reliabilityEmpty ? 'empty' : 'has data'}, social: ${socialEmpty ? 'empty' : 'has data'}, solar: ${solarEmpty ? 'empty' : 'has data'}`);
+    console.log(`[auto-populate] Table status - live_outages: ${outagesEmpty ? 'empty' : 'has data'}, historical: ${historicalEmpty ? 'empty' : 'has data'}, social: ${socialEmpty ? 'empty' : 'has data'}, solar: ${solarEmpty ? 'empty' : 'has data'}`);
 
-    const needsPopulation = outagesEmpty || reliabilityEmpty || socialEmpty;
-
-    if (!needsPopulation) {
-      console.log("[auto-populate] Database already has data, skipping auto-population");
-      return;
-    }
-
-    console.log("[auto-populate] Starting initial data population...");
-
-    if (reliabilityEmpty) {
-      console.log("[auto-populate] Importing historical reliability data (2014-2023 MA DPU filings)...");
-      const result = await importHistoricalData();
-      console.log(`[auto-populate] Historical import complete: ${result.success} imported, ${result.skipped} skipped, ${result.failed} failed`);
+    // No auto-population with fake data - all data must come from real sources:
+    // - Historical outages: Upload DPU Excel files via /admin
+    // - Live outages: Real-time scrapers (National Grid, Eversource)
+    // - Social signals: Real Twitter API (requires TWITTER_BEARER_TOKEN)
+    
+    if (historicalEmpty) {
+      console.log("[auto-populate] No historical data - upload DPU Outage_Accident_Report Excel files via /admin");
     }
 
     if (outagesEmpty) {
-      console.log("[auto-populate] Triggering provider scrapers (National Grid, MEMA)...");
+      console.log("[auto-populate] Triggering live outage scrapers...");
       await providerManager.scrapeAll();
       console.log("[auto-populate] Provider scraping complete");
     }
 
     if (socialEmpty) {
-      console.log("[auto-populate] Triggering social scraper...");
+      console.log("[auto-populate] Triggering social scraper (requires TWITTER_BEARER_TOKEN for real data)...");
       const socialResult = await socialScraper.scrapeAndStore();
-      console.log(`[auto-populate] Social scraping complete: ${socialResult.stored} signals stored from ${socialResult.source}`);
+      console.log(`[auto-populate] Social scraping: ${socialResult.stored} signals stored from ${socialResult.source}`);
     }
 
-    console.log("[auto-populate] Initial data population complete!");
+    console.log("[auto-populate] Startup check complete");
 
   } catch (error) {
-    console.error("[auto-populate] Error during auto-population:", error);
+    console.error("[auto-populate] Error during startup:", error);
   }
 }

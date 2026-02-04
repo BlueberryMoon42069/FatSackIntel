@@ -9,85 +9,6 @@ const TARGET_TOWNS = [
   "Leominster", "Fitchburg", "Gardner", "Spencer"
 ];
 
-const FACEBOOK_SOURCES = [
-  "{town} Community Group",
-  "{town} MA Neighbors",
-  "{town} Residents",
-  "{town} Town Discussion",
-  "Worcester County Homeowners",
-  "Central MA Community",
-  "MetroWest Residents",
-  "{town} Local Talk"
-];
-
-const TWITTER_SOURCES = [
-  "Twitter/@{town}Resident",
-  "Twitter/@MA_PowerWatch",
-  "Twitter/@WorcesterNews",
-  "Twitter/@LocalReporter",
-  "X/@{town}Updates"
-];
-
-const POST_TEMPLATES = {
-  outage: [
-    "Power out in {town} for {duration} hours now. Anyone else affected? #poweroutage",
-    "Just lost power here in {town}. National Grid says {duration} hours to restore.",
-    "No power in {town} near {location}. This is ridiculous! #{town}",
-    "Electricity out again in {town}. Third time this month! @NationalGridUS",
-    "Power's been out in {town} since {time}. Kids can't do homework.",
-    "Anyone in {town} without power? We've been dark for {duration} hours.",
-    "Major outage hitting {town} right now. Whole neighborhood is out.",
-    "Lost power during the storm in {town}. @NationalGrid any updates?",
-    "Power outage in {town}! All my food in the fridge is going to spoil.",
-    "No electricity in {town}. Working from home is impossible today.",
-    "Lights flickering then went out completely here in {town}.",
-    "Been without power in {town} all morning. National Grid truck just arrived.",
-    "Power out in downtown {town}. Traffic lights not working!",
-    "Outage in {town} affecting {affected} homes according to the outage map.",
-  ],
-  billing: [
-    "My National Grid bill increased {percent}% this month! These delivery charges are insane. #{town}",
-    "Electric bill in {town} just hit ${amount}. How is this legal?",
-    "Just got my electricity bill - doubled from last month! Anyone else in {town}?",
-    "National Grid delivery charge is now higher than my usage. Unbelievable. #{town}",
-    "Why is my electric bill ${amount} when I barely use heat? {town} resident here.",
-    "The rate increase from National Grid is killing us in {town}. Time to go solar?",
-    "Can someone explain why my {town} electric bill is ${amount}? This is robbery.",
-    "Electric costs in {town} are out of control. Bill went up {percent}% year over year.",
-    "My delivery charge is ${delivery} on a ${usage} usage bill. Make it make sense. #{town}",
-    "National Grid billing practices are predatory. {town} needs alternatives!",
-    "Just compared bills with my neighbor in {town}. Both got hit with huge increases.",
-    "Winter electric bill in {town}: ${amount}. This is unsustainable.",
-  ],
-  solar: [
-    "Thinking about solar panels after this outage in {town}. Any recommendations?",
-    "Looking for solar installers in {town}. These electric bills are too high.",
-    "Anyone in {town} gone solar? Considering it after this month's bill.",
-    "Solar quote for my {town} house came back at ${amount}. Worth it?",
-    "After 3 outages this year, I'm seriously considering solar + battery for my {town} home.",
-    "Tired of National Grid. Getting solar quotes in {town} area. Any installer recs?",
-    "Researching solar panels for {town}. The ROI looks good with these electric rates.",
-    "My neighbor in {town} got solar last year. Their bill is $20/month now. I'm jealous.",
-    "Best solar companies serving {town}? Need to escape these electricity costs.",
-    "Thinking renewable energy is the way to go. Any {town} residents with solar experience?",
-    "Getting multiple solar quotes for my {town} property. Finally making the switch.",
-  ],
-  battery: [
-    "Looking into Powerwall backup systems after the {town} outage. Anyone have one?",
-    "Researching home battery backup for {town} house. Tesla vs Enphase opinions?",
-    "After this outage in {town}, definitely getting a battery backup system installed.",
-    "Home battery storage seems worth it in {town} with all these power outages.",
-    "Tesla Powerwall owners in {town} - was it worth the investment?",
-    "Considering generator vs battery backup for my {town} home. Advice?",
-    "Enphase battery system quote for {town} - anyone have experience with them?",
-    "Looking at whole home battery backup. {town} power reliability is terrible.",
-    "Solar + battery combo for {town} house. Seems like the smart move these days.",
-    "Anyone in {town} installed a LG RESU battery? Looking for reviews.",
-    "Power storage solutions for {town} homeowners - what's the best value?",
-    "Generac PWRcell vs Tesla Powerwall for {town} home. Which would you choose?",
-  ],
-};
-
 const LOCATIONS = [
   "the high school", "Main Street", "downtown", "the center",
   "near Route 9", "by the town common", "the industrial park",
@@ -142,24 +63,6 @@ export interface TwitterApiConfig {
   maxResults?: number;
 }
 
-function randomItem<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
-function randomInt(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-function randomTimestamp(minHoursAgo: number, maxHoursAgo: number): Date {
-  const hoursAgo = randomInt(minHoursAgo, maxHoursAgo);
-  const minutesAgo = randomInt(0, 59);
-  return new Date(Date.now() - (hoursAgo * 60 + minutesAgo) * 60 * 1000);
-}
-
-function formatTime(date: Date): string {
-  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-}
-
 export class SocialScraper {
   private twitterConfig: TwitterApiConfig | null = null;
 
@@ -172,88 +75,9 @@ export class SocialScraper {
         maxResults: 100,
       };
       console.log("Twitter API configured - will fetch real tweets");
+    } else {
+      console.log("Twitter API not configured - no social data will be collected");
     }
-  }
-
-  private generateOutagePost(town: string): string {
-    const template = randomItem(POST_TEMPLATES.outage);
-    return template
-      .replace(/{town}/g, town)
-      .replace(/{duration}/g, String(randomInt(1, 8)))
-      .replace(/{location}/g, randomItem(LOCATIONS))
-      .replace(/{time}/g, formatTime(randomTimestamp(1, 6)))
-      .replace(/{affected}/g, String(randomInt(50, 2000)));
-  }
-
-  private generateBillingPost(town: string): string {
-    const template = randomItem(POST_TEMPLATES.billing);
-    return template
-      .replace(/{town}/g, town)
-      .replace(/{percent}/g, String(randomInt(15, 50)))
-      .replace(/{amount}/g, String(randomInt(180, 450)))
-      .replace(/{delivery}/g, String(randomInt(80, 150)))
-      .replace(/{usage}/g, String(randomInt(60, 120)));
-  }
-
-  private generateSolarPost(town: string): string {
-    const template = randomItem(POST_TEMPLATES.solar);
-    return template
-      .replace(/{town}/g, town)
-      .replace(/{amount}/g, String(randomInt(15000, 35000)));
-  }
-
-  private generateBatteryPost(town: string): string {
-    const template = randomItem(POST_TEMPLATES.battery);
-    return template.replace(/{town}/g, town);
-  }
-
-  private generateSimulatedPosts(count: number = 20): SocialPost[] {
-    const posts: SocialPost[] = [];
-    const postTypes = ['outage', 'billing', 'solar', 'battery'] as const;
-    const weights = { outage: 0.35, billing: 0.30, solar: 0.20, battery: 0.15 };
-
-    for (let i = 0; i < count; i++) {
-      const town = randomItem(TARGET_TOWNS);
-      const platform = Math.random() > 0.6 ? 'twitter' : 'facebook';
-      
-      const rand = Math.random();
-      let type: typeof postTypes[number];
-      if (rand < weights.outage) type = 'outage';
-      else if (rand < weights.outage + weights.billing) type = 'billing';
-      else if (rand < weights.outage + weights.billing + weights.solar) type = 'solar';
-      else type = 'battery';
-
-      let text: string;
-      switch (type) {
-        case 'outage':
-          text = this.generateOutagePost(town);
-          break;
-        case 'billing':
-          text = this.generateBillingPost(town);
-          break;
-        case 'solar':
-          text = this.generateSolarPost(town);
-          break;
-        case 'battery':
-          text = this.generateBatteryPost(town);
-          break;
-      }
-
-      const sourceTemplates = platform === 'twitter' ? TWITTER_SOURCES : FACEBOOK_SOURCES;
-      const source = randomItem(sourceTemplates).replace(/{town}/g, town);
-
-      posts.push({
-        text,
-        source,
-        timestamp: randomTimestamp(24, 72),
-        platform,
-        url: platform === 'twitter' 
-          ? `https://twitter.com/user/status/${Date.now()}${i}`
-          : undefined,
-      });
-    }
-
-    return posts.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
   }
 
   async scrapeTwitterApi(): Promise<SocialPost[]> {
@@ -367,18 +191,16 @@ export class SocialScraper {
     return null;
   }
 
+  // TODO: Implement real Facebook Graph API integration when API access is available
   async scrapeFacebookGroups(): Promise<SocialPost[]> {
-    return this.generateSimulatedPosts(15);
+    console.log("Facebook API not configured - returning empty data. Real Facebook Graph API integration needed.");
+    return [];
   }
 
   async scrapeAll(): Promise<SocialPost[]> {
-    const [simulatedPosts, twitterPosts] = await Promise.all([
-      this.generateSimulatedPosts(20),
-      this.scrapeTwitterApi(),
-    ]);
-
-    const allPosts = [...simulatedPosts, ...twitterPosts];
-    return allPosts.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+    // Only return real Twitter data - no simulated posts
+    const twitterPosts = await this.scrapeTwitterApi();
+    return twitterPosts.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
   }
 
   async scrapeAndStore(): Promise<{
@@ -390,13 +212,13 @@ export class SocialScraper {
     let processed = 0;
     let stored = 0;
     let errors = 0;
-    let source = "simulated";
+    let source = "none";
 
     try {
       const posts = await this.scrapeAll();
       
       if (this.twitterConfig) {
-        source = "twitter_api+simulated";
+        source = "twitter_api";
       }
 
       console.log(`Processing ${posts.length} social posts (source: ${source})...`);

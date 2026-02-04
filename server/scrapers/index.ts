@@ -1,4 +1,6 @@
 import { NationalGridProvider } from "./national-grid";
+import { EversourceProvider } from "./eversource";
+import { UnitilProvider } from "./unitil";
 import { MEMAProvider } from "./mema";
 import type { BaseProvider } from "./base";
 import { storage } from "../storage";
@@ -11,8 +13,11 @@ export class ProviderManager {
     this.providers = new Map();
     this.intervals = new Map();
     
-    // Register providers
+    // Register live outage data providers - real Kubra API scrapers
     this.providers.set("national-grid", new NationalGridProvider());
+    this.providers.set("eversource", new EversourceProvider());
+    this.providers.set("unitil", new UnitilProvider());
+    // MEMA returns empty until real API is configured
     this.providers.set("mema", new MEMAProvider());
   }
 
