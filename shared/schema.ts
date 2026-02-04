@@ -137,3 +137,47 @@ export const insertLocationScoreSchema = createInsertSchema(locationScores).omit
 
 export type InsertLocationScore = z.infer<typeof insertLocationScoreSchema>;
 export type LocationScore = typeof locationScores.$inferSelect;
+
+// Historical outages from DPU Outage_Accident_Report filings (street-level data)
+export const historicalOutages = pgTable("historical_outages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  utility: varchar("utility", { length: 50 }).notNull(), // Eversource, National Grid, Unitil
+  year: integer("year").notNull(),
+  reportDate: timestamp("report_date"),
+  region: varchar("region", { length: 10 }), // EMA, WMA, etc.
+  awc: varchar("awc", { length: 50 }), // Area Work Center
+  town: varchar("town", { length: 100 }).notNull(),
+  street: varchar("street", { length: 200 }),
+  station: varchar("station", { length: 50 }),
+  feeder: varchar("feeder", { length: 50 }),
+  protectiveDevice: varchar("protective_device", { length: 50 }),
+  voltage: varchar("voltage", { length: 20 }),
+  ohUg: varchar("oh_ug", { length: 5 }), // OH (overhead) or UG (underground)
+  customersOut: integer("customers_out"),
+  injuries: integer("injuries").default(0),
+  durationHours: real("duration_hours"),
+  customerMinutes: real("customer_minutes"),
+  incidentStart: timestamp("incident_start"),
+  incidentEnd: timestamp("incident_end"),
+  cause: varchar("cause", { length: 100 }),
+  failedComponent: varchar("failed_component", { length: 100 }),
+  weather: varchar("weather", { length: 20 }),
+  majorEvent: varchar("major_event", { length: 5 }), // Y/N
+  plannedOutage: varchar("planned_outage", { length: 5 }), // Y/N
+  draftIncidentNumber: varchar("draft_incident_number", { length: 50 }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  townIdx: index("historical_town_idx").on(table.town),
+  yearIdx: index("historical_year_idx").on(table.year),
+  utilityIdx: index("historical_utility_idx").on(table.utility),
+  incidentStartIdx: index("historical_incident_start_idx").on(table.incidentStart),
+  streetIdx: index("historical_street_idx").on(table.street),
+}));
+
+export const insertHistoricalOutageSchema = createInsertSchema(historicalOutages).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertHistoricalOutage = z.infer<typeof insertHistoricalOutageSchema>;
+export type HistoricalOutage = typeof historicalOutages.$inferSelect;
