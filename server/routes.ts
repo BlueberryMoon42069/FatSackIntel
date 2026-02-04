@@ -1,13 +1,38 @@
 import type { Express } from "express";
 import type { Server } from "http";
+import multer from "multer";
 import { storage } from "./storage";
 import { providerManager } from "./scrapers/index";
 import { socialScraper } from "./scrapers/social";
 import { solarCalculator } from "./utils/solar";
 import { scoringEngine } from "./utils/scoring";
-import { importHistoricalData, getHistoricalSummary } from "./utils/historical-import";
+import { parseOutageReport } from "./utils/excel-parser";
 
 import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
+
+// Configure multer for file uploads (memory storage for processing)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB max file size
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+      'application/vnd.ms-excel', // .xls
+      'text/csv',
+      'application/csv',
+    ];
+    const allowedExtensions = ['.xlsx', '.xls', '.csv'];
+    const ext = file.originalname.toLowerCase().substring(file.originalname.lastIndexOf('.'));
+    
+    if (allowedTypes.includes(file.mimetype) || allowedExtensions.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only Excel (.xlsx, .xls) and CSV files are allowed'));
+    }
+  },
+});
 
 const territoryCentroids: Record<string, [number, number]> = {
   "Worcester County": [-71.8, 42.26],
@@ -114,8 +139,21 @@ export async function registerRoutes(
 
   app.get("/api/reliability/summary", async (req, res) => {
     try {
-      const summary = getHistoricalSummary();
-      res.json(summary);
+      // Get reliability metrics and summarize
+      const metrics = await storage.getReliabilityMetrics();
+      const providers = Array.from(new Set(metrics.map(m => m.provider)));
+      const years = Array.from(new Set(metrics.map(m => m.year))).sort((a, b) => (b || 0) - (a || 0));
+      
+      res.json({
+        totalRecords: metrics.length,
+        providers,
+        years,
+        averages: {
+          saidi: metrics.reduce((sum, m) => sum + (m.saidi || 0), 0) / (metrics.length || 1),
+          saifi: metrics.reduce((sum, m) => sum + (m.saifi || 0), 0) / (metrics.length || 1),
+          caidi: metrics.reduce((sum, m) => sum + (m.caidi || 0), 0) / (metrics.length || 1),
+        },
+      });
     } catch (error) {
       console.error("Error fetching reliability summary:", error);
       res.status(500).json({ error: "Failed to fetch summary" });
@@ -448,14 +486,12 @@ export async function registerRoutes(
     }
   });
 
+  // Legacy endpoint - now uses file upload instead
   app.post("/api/admin/import/historical", async (req, res) => {
-    try {
-      const result = await importHistoricalData();
-      res.json(result);
-    } catch (error) {
-      console.error("Error importing historical data:", error);
-      res.status(500).json({ error: "Failed to import historical data" });
-    }
+    res.status(400).json({ 
+      error: "This endpoint is deprecated. Please use POST /api/admin/upload/historical with file upload instead.",
+      instructions: "Upload DPU Outage_Accident_Report Excel files (.xlsx) via the Admin page."
+    });
   });
 
   app.post("/api/admin/score/batch", async (req, res) => {
@@ -475,12 +511,13 @@ export async function registerRoutes(
 
   app.get("/api/admin/status", async (req, res) => {
     try {
-      const [outages, reliability, social, solar, scores] = await Promise.all([
+      const [outages, reliability, social, solar, scores, historicalStats] = await Promise.all([
         storage.getActiveOutages(),
         storage.getReliabilityMetrics(),
         storage.getRecentSocialSignals(24),
         storage.getSolarData(42.3, -71.8, 1.0),
         storage.getTopLocations(10),
+        storage.getHistoricalOutageStats(),
       ]);
 
       res.json({
@@ -490,12 +527,166 @@ export async function registerRoutes(
           recentSocialSignals: social.length,
           solarDataPoints: solar.length,
           scoredLocations: scores.length,
+          historicalOutages: historicalStats.totalRecords,
+        },
+        historical: {
+          utilities: historicalStats.utilities,
+          years: historicalStats.years,
+          topTowns: historicalStats.topTowns,
         },
         lastUpdated: new Date().toISOString(),
       });
     } catch (error) {
       console.error("Error fetching status:", error);
       res.status(500).json({ error: "Failed to fetch status" });
+    }
+  });
+
+  // ===== HISTORICAL OUTAGES API =====
+
+  // Upload DPU Outage_Accident_Report Excel/CSV file
+  app.post("/api/admin/upload/historical", upload.single('file'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      console.log(`[upload] Processing file: ${req.file.originalname} (${req.file.size} bytes)`);
+      
+      const parseResult = parseOutageReport(req.file.buffer, req.file.originalname);
+      
+      if (!parseResult.success) {
+        return res.status(400).json({
+          success: false,
+          errors: parseResult.errors,
+          warnings: parseResult.warnings,
+          stats: parseResult.stats,
+        });
+      }
+
+      // Insert records into database
+      const inserted = await storage.createHistoricalOutagesBatch(parseResult.records);
+      
+      console.log(`[upload] Inserted ${inserted} historical outage records`);
+
+      res.json({
+        success: true,
+        message: `Successfully imported ${inserted} historical outage records`,
+        stats: parseResult.stats,
+        warnings: parseResult.warnings,
+      });
+    } catch (error) {
+      console.error("Error uploading historical data:", error);
+      res.status(500).json({ error: "Failed to process uploaded file" });
+    }
+  });
+
+  // Get historical outages with search/filter
+  app.get("/api/historical", async (req, res) => {
+    try {
+      const { town, street, utility, year, startDate, endDate, limit, offset } = req.query;
+      
+      const outages = await storage.getHistoricalOutages({
+        town: town as string,
+        street: street as string,
+        utility: utility as string,
+        year: year ? parseInt(year as string) : undefined,
+        startDate: startDate ? new Date(startDate as string) : undefined,
+        endDate: endDate ? new Date(endDate as string) : undefined,
+        limit: limit ? parseInt(limit as string) : 100,
+        offset: offset ? parseInt(offset as string) : 0,
+      });
+
+      res.json({
+        updatedAt: new Date().toISOString(),
+        total: outages.length,
+        outages,
+      });
+    } catch (error) {
+      console.error("Error fetching historical outages:", error);
+      res.status(500).json({ error: "Failed to fetch historical data" });
+    }
+  });
+
+  // Get historical outage statistics
+  app.get("/api/historical/stats", async (req, res) => {
+    try {
+      const stats = await storage.getHistoricalOutageStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching historical stats:", error);
+      res.status(500).json({ error: "Failed to fetch historical stats" });
+    }
+  });
+
+  // Get town-level aggregations for heatmap
+  app.get("/api/historical/heatmap", async (req, res) => {
+    try {
+      const { year, utility } = req.query;
+      
+      // Get all historical outages with filters
+      const outages = await storage.getHistoricalOutages({
+        utility: utility as string,
+        year: year ? parseInt(year as string) : undefined,
+        limit: 50000,
+      });
+
+      // Aggregate by town
+      const townAggregations: Record<string, {
+        town: string;
+        totalOutages: number;
+        totalCustomersAffected: number;
+        totalDuration: number;
+        avgDuration: number;
+      }> = {};
+
+      for (const outage of outages) {
+        const town = outage.town;
+        if (!townAggregations[town]) {
+          townAggregations[town] = {
+            town,
+            totalOutages: 0,
+            totalCustomersAffected: 0,
+            totalDuration: 0,
+            avgDuration: 0,
+          };
+        }
+        townAggregations[town].totalOutages++;
+        townAggregations[town].totalCustomersAffected += outage.customersOut || 0;
+        townAggregations[town].totalDuration += outage.durationHours || 0;
+      }
+
+      // Calculate averages and add coordinates
+      const heatmapData = Object.values(townAggregations).map(agg => {
+        const coords = townCentroids[agg.town] || null;
+        return {
+          ...agg,
+          avgDuration: agg.totalOutages > 0 ? agg.totalDuration / agg.totalOutages : 0,
+          lat: coords ? coords[1] : null,
+          lon: coords ? coords[0] : null,
+        };
+      }).filter(d => d.lat && d.lon); // Only include towns with coordinates
+
+      res.json({
+        updatedAt: new Date().toISOString(),
+        total: heatmapData.length,
+        data: heatmapData.sort((a, b) => b.totalOutages - a.totalOutages),
+      });
+    } catch (error) {
+      console.error("Error fetching historical heatmap:", error);
+      res.status(500).json({ error: "Failed to fetch heatmap data" });
+    }
+  });
+
+  // Delete historical data by utility/year
+  app.delete("/api/admin/historical/:utility/:year", async (req, res) => {
+    try {
+      const { utility, year } = req.params;
+      const deleted = await storage.deleteHistoricalOutagesByUtilityYear(utility, parseInt(year));
+      res.json({ success: true, deleted });
+    } catch (error) {
+      console.error("Error deleting historical data:", error);
+      res.status(500).json({ error: "Failed to delete historical data" });
     }
   });
 

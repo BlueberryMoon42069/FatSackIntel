@@ -13,6 +13,8 @@ import type {
   InsertSolarData,
   LocationScore,
   InsertLocationScore,
+  HistoricalOutage,
+  InsertHistoricalOutage,
 } from "@shared/schema";
 
 const pool = new Pool({
@@ -184,6 +186,115 @@ export class DatabaseStorage implements IStorage {
       const result = await db.insert(schema.locationScores).values(score).returning();
       return result[0];
     }
+  }
+
+  // Historical outages
+  async getHistoricalOutages(filters?: {
+    town?: string;
+    street?: string;
+    utility?: string;
+    year?: number;
+    startDate?: Date;
+    endDate?: Date;
+    limit?: number;
+    offset?: number;
+  }): Promise<HistoricalOutage[]> {
+    const conditions = [];
+    
+    if (filters?.town) {
+      conditions.push(sql`LOWER(${schema.historicalOutages.town}) LIKE LOWER(${'%' + filters.town + '%'})`);
+    }
+    if (filters?.street) {
+      conditions.push(sql`LOWER(${schema.historicalOutages.street}) LIKE LOWER(${'%' + filters.street + '%'})`);
+    }
+    if (filters?.utility) {
+      conditions.push(eq(schema.historicalOutages.utility, filters.utility));
+    }
+    if (filters?.year) {
+      conditions.push(eq(schema.historicalOutages.year, filters.year));
+    }
+    if (filters?.startDate) {
+      conditions.push(gte(schema.historicalOutages.incidentStart, filters.startDate));
+    }
+    if (filters?.endDate) {
+      conditions.push(sql`${schema.historicalOutages.incidentStart} <= ${filters.endDate}`);
+    }
+    
+    let query = db.select()
+      .from(schema.historicalOutages)
+      .orderBy(desc(schema.historicalOutages.incidentStart))
+      .limit(filters?.limit || 1000)
+      .offset(filters?.offset || 0);
+    
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions)) as any;
+    }
+    
+    return await query;
+  }
+
+  async createHistoricalOutage(outage: InsertHistoricalOutage): Promise<HistoricalOutage> {
+    const result = await db.insert(schema.historicalOutages).values(outage).returning();
+    return result[0];
+  }
+
+  async createHistoricalOutagesBatch(outages: InsertHistoricalOutage[]): Promise<number> {
+    if (outages.length === 0) return 0;
+    
+    // Insert in batches of 100 for performance
+    const batchSize = 100;
+    let inserted = 0;
+    
+    for (let i = 0; i < outages.length; i += batchSize) {
+      const batch = outages.slice(i, i + batchSize);
+      await db.insert(schema.historicalOutages).values(batch);
+      inserted += batch.length;
+    }
+    
+    return inserted;
+  }
+
+  async getHistoricalOutageStats(): Promise<{
+    totalRecords: number;
+    utilities: string[];
+    years: number[];
+    topTowns: { town: string; count: number }[];
+  }> {
+    const totalResult = await db.select({ count: sql<number>`count(*)` })
+      .from(schema.historicalOutages);
+    
+    const utilitiesResult = await db.selectDistinct({ utility: schema.historicalOutages.utility })
+      .from(schema.historicalOutages);
+    
+    const yearsResult = await db.selectDistinct({ year: schema.historicalOutages.year })
+      .from(schema.historicalOutages)
+      .orderBy(desc(schema.historicalOutages.year));
+    
+    const topTownsResult = await db.select({
+      town: schema.historicalOutages.town,
+      count: sql<number>`count(*)`,
+    })
+      .from(schema.historicalOutages)
+      .groupBy(schema.historicalOutages.town)
+      .orderBy(desc(sql`count(*)`))
+      .limit(20);
+    
+    return {
+      totalRecords: totalResult[0]?.count || 0,
+      utilities: utilitiesResult.map(r => r.utility).filter(Boolean) as string[],
+      years: yearsResult.map(r => r.year).filter(Boolean) as number[],
+      topTowns: topTownsResult.map(r => ({ town: r.town, count: Number(r.count) })),
+    };
+  }
+
+  async deleteHistoricalOutagesByUtilityYear(utility: string, year: number): Promise<number> {
+    const result = await db.delete(schema.historicalOutages)
+      .where(and(
+        eq(schema.historicalOutages.utility, utility),
+        eq(schema.historicalOutages.year, year)
+      ))
+      .returning();
+    return result.length;
   }
 }
 
