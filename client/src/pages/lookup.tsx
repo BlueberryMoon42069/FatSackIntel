@@ -1,9 +1,9 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, MapPin, History, Info } from "lucide-react";
+import { Search, MapPin, History, Info, Sun } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { mockScores } from "@/lib/mockData";
@@ -87,6 +87,23 @@ export default function LookupPage() {
                     <div className="rounded-lg border bg-card p-2 text-center">
                       <div className="text-[10px] uppercase text-muted-foreground font-semibold">Reliability</div>
                       <div className="text-lg font-bold">Top 15%</div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-3 grid gap-2">
+                    <div className="text-xs font-semibold flex items-center gap-1 text-yellow-700">
+                      <Sun className="h-3 w-3" />
+                      Solar Potential (Mockup)
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                       <div className="text-muted-foreground">Roof Tilt: <span className="text-foreground font-medium">{r.solar?.roof_tilt?.toFixed(1)}°</span></div>
+                       <div className="text-muted-foreground">Azimuth: <span className="text-foreground font-medium">{r.solar?.roof_azimuth?.toFixed(1)}°</span></div>
+                       <div className="text-muted-foreground">Shading: <span className="text-foreground font-medium">{(r.solar?.shading_factor * 100).toFixed(0)}%</span></div>
+                       <div className="text-muted-foreground">kWh/kW: <span className="text-foreground font-medium">{r.solar?.kwh_per_kw}</span></div>
+                    </div>
+                    <div className="flex items-center justify-between text-xs pt-1 border-t border-yellow-500/10 mt-1">
+                      <span className="font-medium text-yellow-700">Annual Est:</span>
+                      <span className="font-bold">{Math.round(r.solar?.kwh_per_kw * 6.5).toLocaleString()} kWh</span>
                     </div>
                   </div>
 

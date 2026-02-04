@@ -14,6 +14,7 @@ import "leaflet/dist/leaflet.css";
 export default function LayersPage() {
   const [showGas, setShowGas] = useState(true);
   const [showHeating, setShowHeating] = useState(true);
+  const [showSolar, setShowSolar] = useState(false);
 
   const cacheRef = useRef(new Map<string, any>());
 
@@ -78,6 +79,13 @@ export default function LayersPage() {
                   </div>
                   <Switch checked={showHeating} onCheckedChange={setShowHeating} data-testid="toggle-layer-heating" />
                 </div>
+                <div className="flex items-center justify-between rounded-lg border bg-card px-3 py-2">
+                  <div className="grid">
+                    <div className="text-sm font-medium" data-testid="text-layer-solar">Solar Potential</div>
+                    <div className="text-xs text-muted-foreground">Roof tilt & shading heatmap (Mockup)</div>
+                  </div>
+                  <Switch checked={showSolar} onCheckedChange={setShowSolar} data-testid="toggle-layer-solar" />
+                </div>
               </div>
 
               <Separator />
@@ -97,6 +105,13 @@ export default function LayersPage() {
                     <div className="flex items-center gap-2">
                       <span className="h-3 w-3 rounded-sm" style={{ background: "#f59e0b" }} />
                       <span className="text-xs text-muted-foreground">higher share</span>
+                    </div>
+                  </div>
+                   <div className="rounded-lg border bg-card p-3 flex items-center justify-between">
+                    <div className="text-sm">Solar suitability</div>
+                    <div className="flex items-center gap-2">
+                      <span className="h-3 w-3 rounded-sm" style={{ background: "#eab308" }} />
+                      <span className="text-xs text-muted-foreground">high potential</span>
                     </div>
                   </div>
                 </div>

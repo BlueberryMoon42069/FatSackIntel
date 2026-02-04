@@ -38,6 +38,15 @@ export type ScoreCell = {
   };
 
   top_reasons: string[];
+  
+  solar?: {
+    roof_tilt: number;
+    roof_azimuth: number;
+    shading_factor: number;
+    annual_GHI: number;
+    kwh_per_kw: number;
+    solar_score: number;
+  };
 };
 
 export type ScoresApiResponse = {
@@ -241,6 +250,13 @@ export function mockScores(window: ScoreWindow): ScoresApiResponse {
     if (boosts.social) reasons.push("Public page hotspot (+0.03)");
     if (!reasons.length) reasons.push("Elevated outage minutes in this window");
 
+    // Mock solar metrics
+    const tilt = 20 + (i * 2) % 15;
+    const azimuth = 180 + (i * 5) % 40;
+    const shading = 0.85 + (i * 0.01) % 0.14;
+    const annualGHI = 4.2 + (i * 0.05) % 0.8;
+    const kwhPerKw = annualGHI * 365 * shading * 0.8; 
+
     return {
       h3: `892a10d${i}b7fffff`,
       window,
@@ -255,6 +271,14 @@ export function mockScores(window: ScoreWindow): ScoresApiResponse {
         electric_heat_share: heatShare,
         no_gas_share: noGasShare,
         social_signal: boosts.social ? 0.6 : 0.1,
+      },
+      solar: {
+        roof_tilt: tilt,
+        roof_azimuth: azimuth,
+        shading_factor: shading,
+        annual_GHI: annualGHI,
+        kwh_per_kw: Math.round(kwhPerKw),
+        solar_score: Math.min(100, Math.round(kwhPerKw / 12)),
       },
       top_reasons: reasons.slice(0, 3),
     };
