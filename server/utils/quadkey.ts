@@ -103,15 +103,20 @@ export function getQuadKeysForBounds(
   maxLng: number,
   zoom: number
 ): string[] {
-  const minPixel = latLngToPixelXY(minLat, minLng, zoom);
-  const maxPixel = latLngToPixelXY(maxLat, maxLng, zoom);
+  const swPixel = latLngToPixelXY(minLat, minLng, zoom);
+  const nePixel = latLngToPixelXY(maxLat, maxLng, zoom);
   
-  const minTile = pixelXYToTileXY(minPixel.x, minPixel.y);
-  const maxTile = pixelXYToTileXY(maxPixel.x, maxPixel.y);
+  const swTile = pixelXYToTileXY(swPixel.x, swPixel.y);
+  const neTile = pixelXYToTileXY(nePixel.x, nePixel.y);
+  
+  const minTileX = Math.min(swTile.x, neTile.x);
+  const maxTileX = Math.max(swTile.x, neTile.x);
+  const minTileY = Math.min(swTile.y, neTile.y);
+  const maxTileY = Math.max(swTile.y, neTile.y);
   
   const quadKeys: string[] = [];
-  for (let x = minTile.x; x <= maxTile.x; x++) {
-    for (let y = minTile.y; y <= maxTile.y; y++) {
+  for (let x = minTileX; x <= maxTileX; x++) {
+    for (let y = minTileY; y <= maxTileY; y++) {
       quadKeys.push(tileXYToQuadKey(x, y, zoom));
     }
   }
