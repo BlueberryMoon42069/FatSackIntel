@@ -145,6 +145,10 @@ export default function LiveMapPage() {
         customers: f.properties?.customers ?? 0,
         status: f.properties?.status,
         location: f.properties?.location || "Unknown Location",
+        knockScore: f.properties?.knockScore,
+        outageScore: f.properties?.outageScore,
+        socialScore: f.properties?.socialScore,
+        solarScore: f.properties?.solarScore,
       }))
       .sort((a, b) => (b.customers || 0) - (a.customers || 0));
   }, [state.data]);
@@ -291,11 +295,31 @@ export default function LiveMapPage() {
                         setSelectedOutageId(feature.properties?.id);
                       });
                       if (feature.properties?.customers) {
+                        const props = feature.properties;
+                        const knock = props.knockScore ? (props.knockScore * 100).toFixed(0) : 'N/A';
+                        const outage = props.outageScore ? (props.outageScore * 100).toFixed(0) : 'N/A';
+                        const social = props.socialScore ? (props.socialScore * 100).toFixed(0) : 'N/A';
+                        const solar = props.solarScore ? (props.solarScore * 100).toFixed(0) : 'N/A';
+                        
                         layer.bindPopup(`
-                          <div class="text-xs p-1">
-                            <div class="font-bold">${feature.properties.location || 'Outage'}</div>
-                            <div>Affected: ${feature.properties.customers.toLocaleString()}</div>
-                            <div>Provider: ${feature.properties.provider}</div>
+                          <div class="text-xs p-2 min-w-[200px]">
+                            <div class="font-bold text-sm mb-1 border-b pb-1">${props.location || 'Outage Location'}</div>
+                            <div class="flex justify-between mb-1">
+                              <span>Severity:</span>
+                              <span class="font-bold ${props.customers > 100 ? 'text-red-600' : 'text-orange-600'}">
+                                ${props.customers.toLocaleString()} Affected
+                              </span>
+                            </div>
+                            <div class="flex justify-between mb-1">
+                              <span>Provider:</span>
+                              <span class="font-medium uppercase">${props.provider}</span>
+                            </div>
+                            <div class="mt-2 pt-2 border-t font-semibold text-primary">Knock Score: ${knock}%</div>
+                            <div class="grid grid-cols-3 gap-1 mt-1 text-[10px] text-muted-foreground">
+                              <div>Risk: ${outage}%</div>
+                              <div>Social: ${social}%</div>
+                              <div>Solar: ${solar}%</div>
+                            </div>
                           </div>
                         `);
                       }

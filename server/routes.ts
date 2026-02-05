@@ -139,20 +139,38 @@ export async function registerRoutes(
   app.get("/api/outages", async (req, res) => {
     try {
       const outages = await storage.getActiveOutages();
+      const locations = await storage.getTopLocations(1000); // Get scored locations to match with outages
       
       // Convert database outages to GeoJSON FeatureCollection
-      const features = outages.map(outage => ({
-        type: "Feature" as const,
-        properties: {
-          id: outage.id,
-          provider: outage.provider,
-          customers: outage.customersAffected,
-          status: outage.status,
-          confidence: outage.confidence,
-          reportedAt: outage.reportedAt,
-        },
-        geometry: outage.geometry,
-      }));
+      const features = outages.map(outage => {
+        // Try to find a matching location score for this provider/area
+        // In a real scenario, we'd use H3 or spatial join. 
+        // For now, we'll approximate or use default scoring components.
+        const outageGeom = outage.geometry as any;
+        const locationMatch = locations.find(l => 
+          outageGeom.type === 'Point' && 
+          Math.abs(l.lat - outageGeom.coordinates[1]) < 0.1 && 
+          Math.abs(l.lon - outageGeom.coordinates[0]) < 0.1
+        );
+
+        return {
+          type: "Feature" as const,
+          properties: {
+            id: outage.id,
+            provider: outage.provider,
+            customers: outage.customersAffected,
+            status: outage.status,
+            confidence: outage.confidence,
+            reportedAt: outage.reportedAt,
+            location: (outage as any).location || "Outage Location",
+            knockScore: locationMatch?.finalScore ?? 0.6, // Default fallback
+            outageScore: locationMatch?.outageScore ?? 0.7,
+            socialScore: locationMatch?.socialScore ?? 0.3,
+            solarScore: locationMatch?.solarScore ?? 0.65,
+          },
+          geometry: outage.geometry,
+        };
+      });
 
       res.json({
         updatedAt: new Date().toISOString(),
