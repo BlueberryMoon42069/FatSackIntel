@@ -764,6 +764,97 @@ export async function registerRoutes(
     }
   });
 
+  // Get historical summary for a specific location (town or street)
+  app.get("/api/historical/summary", async (req, res) => {
+    try {
+      const { town, street } = req.query;
+      
+      if (!town && !street) {
+        return res.status(400).json({ error: "Town or street is required" });
+      }
+      
+      const outages = await storage.getHistoricalOutages({
+        town: town as string,
+        street: street as string,
+        limit: 10000,
+      });
+      
+      if (outages.length === 0) {
+        return res.json({
+          totalOutages: 0,
+          totalCustomersAffected: 0,
+          avgDurationMinutes: 0,
+          avgCustomersAffected: 0,
+          mostCommonCauses: [],
+          recentOutages: [],
+          yearlyBreakdown: {},
+        });
+      }
+      
+      // Aggregate statistics
+      let totalCustomers = 0;
+      let totalDuration = 0;
+      const causeCounts: Record<string, number> = {};
+      const yearlyData: Record<number, { count: number; customers: number }> = {};
+      
+      for (const outage of outages) {
+        totalCustomers += outage.customersOut || 0;
+        // Convert hours to minutes for duration
+        totalDuration += (outage.durationHours || 0) * 60;
+        
+        const cause = outage.cause || "Unknown";
+        causeCounts[cause] = (causeCounts[cause] || 0) + 1;
+        
+        const incidentDate = outage.incidentStart || outage.reportDate;
+        const year = incidentDate ? new Date(incidentDate).getFullYear() : outage.year;
+        if (!yearlyData[year]) {
+          yearlyData[year] = { count: 0, customers: 0 };
+        }
+        yearlyData[year].count++;
+        yearlyData[year].customers += outage.customersOut || 0;
+      }
+      
+      // Sort causes by count
+      const mostCommonCauses = Object.entries(causeCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([cause, count]) => ({ cause, count }));
+      
+      // Get most recent outages
+      const recentOutages = outages
+        .sort((a, b) => {
+          const dateA = a.incidentStart || a.reportDate || new Date(a.year, 0, 1);
+          const dateB = b.incidentStart || b.reportDate || new Date(b.year, 0, 1);
+          return new Date(dateB).getTime() - new Date(dateA).getTime();
+        })
+        .slice(0, 10)
+        .map(o => ({
+          id: o.id,
+          date: o.incidentStart || o.reportDate,
+          customersAffected: o.customersOut,
+          durationMinutes: Math.round((o.durationHours || 0) * 60),
+          cause: o.cause,
+          street: o.street,
+          utility: o.utility,
+        }));
+      
+      res.json({
+        town: town || null,
+        street: street || null,
+        totalOutages: outages.length,
+        totalCustomersAffected: totalCustomers,
+        avgDurationMinutes: Math.round(totalDuration / outages.length),
+        avgCustomersAffected: Math.round(totalCustomers / outages.length),
+        mostCommonCauses,
+        recentOutages,
+        yearlyBreakdown: yearlyData,
+      });
+    } catch (error) {
+      console.error("Error fetching historical summary:", error);
+      res.status(500).json({ error: "Failed to fetch historical summary" });
+    }
+  });
+
   // Get historical outages with search/filter
   app.get("/api/historical", async (req, res) => {
     try {

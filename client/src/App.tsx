@@ -17,6 +17,7 @@ import LayersPage from "@/pages/layers";
 import AdminPage from "@/pages/admin";
 import HistoricalPage from "@/pages/historical";
 import HeatmapPage from "@/pages/heatmap";
+import CalculatorPage from "@/pages/calculator";
 
 function LoginPage() {
   return (
@@ -69,6 +70,7 @@ function Router() {
       <Route path="/admin" component={AdminPage} />
       <Route path="/historical" component={HistoricalPage} />
       <Route path="/heatmap" component={HeatmapPage} />
+      <Route path="/calculator" component={CalculatorPage} />
       <Route component={NotFound} />
     </Switch>
   );

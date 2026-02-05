@@ -14,11 +14,13 @@ import {
   MessageSquare,
   History,
   MapPin,
+  Calculator,
 } from "lucide-react";
 
 const nav = [
   { href: "/", label: "Live Outage Map", icon: Map, testId: "link-nav-map" },
   { href: "/rankings", label: "Knock Now", icon: ListOrdered, testId: "link-nav-rankings" },
+  { href: "/calculator", label: "Calculator", icon: Calculator, testId: "link-nav-calculator" },
   { href: "/social", label: "Social Pulse", icon: MessageSquare, testId: "link-nav-social" },
   { href: "/lookup", label: "Lookup", icon: Search, testId: "link-nav-lookup" },
   { href: "/historical", label: "Historical", icon: History, testId: "link-nav-historical" },

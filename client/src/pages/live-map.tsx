@@ -7,6 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/EmptyState";
+import { OutageDetailDrawer } from "@/components/OutageDetailDrawer";
 import { apiFetch } from "@/lib/api";
 import type { FeatureCollection, Geometry } from "geojson";
 
@@ -135,6 +136,7 @@ export default function LiveMapPage() {
   }, [url, debouncedBbox, debouncedProviders]);
 
   const [selectedOutageId, setSelectedOutageId] = useState<string | number | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const outageList = useMemo(() => {
     if (!state.data?.features?.features) return [];
@@ -244,7 +246,10 @@ export default function LiveMapPage() {
                     <div 
                       key={outage.id}
                       className={`p-2 rounded-md border mb-2 cursor-pointer transition-colors ${selectedOutageId === outage.id ? 'bg-primary/10 border-primary' : 'hover:bg-muted'}`}
-                      onClick={() => setSelectedOutageId(outage.id)}
+                      onClick={() => {
+                        setSelectedOutageId(outage.id);
+                        setDrawerOpen(true);
+                      }}
                       data-testid={`outage-item-${outage.id}`}
                     >
                       <div className="flex justify-between items-start">
@@ -293,6 +298,7 @@ export default function LiveMapPage() {
                     onEachFeature: (feature: any, layer: any) => {
                       layer.on('click', () => {
                         setSelectedOutageId(feature.properties?.id);
+                        setDrawerOpen(true);
                       });
                       if (feature.properties?.customers) {
                         const props = feature.properties;
@@ -356,6 +362,12 @@ export default function LiveMapPage() {
           </div>
         </Card>
       </div>
+      
+      <OutageDetailDrawer
+        open={drawerOpen}
+        onOpenChange={setDrawerOpen}
+        outage={outageList.find(o => o.id === selectedOutageId) || null}
+      />
     </AppShell>
   );
 }
