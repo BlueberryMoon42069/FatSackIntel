@@ -8,6 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
+import { apiFetch } from "@/lib/api";
 import { 
   Calculator, 
   Download, 
@@ -16,8 +19,37 @@ import {
   TrendingUp, 
   DollarSign,
   Home,
-  FileText
+  FileText,
+  Search,
+  AlertTriangle,
 } from "lucide-react";
+
+// Preset options from the spreadsheet
+const UTILITY_RATE_PRESETS = [
+  { label: "Customer (from bill)", value: "customer", rate: 0 },
+  { label: "New England Residential Avg", value: "new_england", rate: 0.2768 },
+  { label: "Massachusetts Residential Avg", value: "massachusetts", rate: 0.2935 },
+  { label: "National Grid MA", value: "national_grid", rate: 0.336 },
+  { label: "Eversource (NSTAR)", value: "eversource", rate: 0.2991 },
+  { label: "Unitil (Fitchburg)", value: "unitil", rate: 0.4008 },
+];
+
+const UTILITY_INCREASE_PRESETS = [
+  { label: "Customer (custom)", value: "customer", rate: 0.0484 },
+  { label: "MA 5yr (6.01%)", value: "ma_5yr", rate: 0.0601 },
+  { label: "MA 10yr (5.37%)", value: "ma_10yr", rate: 0.0537 },
+  { label: "MA 25yr (4.36%)", value: "ma_25yr", rate: 0.0436 },
+  { label: "NE 5yr (5.57%)", value: "ne_5yr", rate: 0.0557 },
+  { label: "National 5yr (4.84%)", value: "national_5yr", rate: 0.0484 },
+];
+
+const CPI_INFLATION_PRESETS = [
+  { label: "National 10yr Avg (2.86%)", value: "national_10yr", rate: 0.0286 },
+  { label: "National 5yr Avg (4.5%)", value: "national_5yr", rate: 0.045 },
+  { label: "Custom", value: "custom", rate: 0.0286 },
+];
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 type YearlyData = {
   year: number;
@@ -29,12 +61,23 @@ type YearlyData = {
   cumulativeSavings: number;
 };
 
+type HistoricalSummary = {
+  totalOutages: number;
+  totalCustomersAffected: number;
+  avgDurationMinutes: number;
+  avgCustomersAffected: number;
+  mostCommonCauses: { cause: string; count: number }[];
+  recentOutages: any[];
+};
+
 function calculateSavingsModel(inputs: {
   currentUtilityRate: number;
   monthlyUsage: number;
   utilityRateIncrease: number;
-  solarRate: number;
+  solarMonthlyPayment: number;
   solarEscalator: number;
+  solarOffset: number;
+  rebatesYearly: number;
   years: number;
 }): YearlyData[] {
   const data: YearlyData[] = [];
@@ -42,11 +85,13 @@ function calculateSavingsModel(inputs: {
   
   for (let year = 1; year <= inputs.years; year++) {
     const utilityRate = inputs.currentUtilityRate * Math.pow(1 + inputs.utilityRateIncrease, year - 1);
-    const solarRate = inputs.solarRate * Math.pow(1 + inputs.solarEscalator, year - 1);
+    const solarPayment = inputs.solarMonthlyPayment * Math.pow(1 + inputs.solarEscalator, year - 1);
     
     const utilityMonthly = utilityRate * inputs.monthlyUsage;
-    const solarMonthly = solarRate * inputs.monthlyUsage;
-    const savingsMonthly = utilityMonthly - solarMonthly;
+    // Solar covers offset%, remainder is utility
+    const solarMonthly = solarPayment + (utilityRate * inputs.monthlyUsage * (1 - inputs.solarOffset));
+    const rebateMonthly = inputs.rebatesYearly / 12;
+    const savingsMonthly = utilityMonthly - solarMonthly + rebateMonthly;
     const savingsYearly = savingsMonthly * 12;
     cumulativeSavings += savingsYearly;
     
@@ -56,7 +101,7 @@ function calculateSavingsModel(inputs: {
       solarMonthly,
       savingsMonthly,
       savingsYearly,
-      percentSaved: savingsMonthly / utilityMonthly,
+      percentSaved: utilityMonthly > 0 ? savingsMonthly / utilityMonthly : 0,
       cumulativeSavings,
     });
   }
@@ -73,6 +118,15 @@ function formatCurrency(value: number): string {
   }).format(value);
 }
 
+function formatCurrencyDecimal(value: number): string {
+  return new Intl.NumberFormat('en-US', { 
+    style: 'currency', 
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  }).format(value);
+}
+
 function formatPercent(value: number): string {
   return new Intl.NumberFormat('en-US', { 
     style: 'percent', 
@@ -81,20 +135,54 @@ function formatPercent(value: number): string {
   }).format(value);
 }
 
+function formatDuration(minutes: number): string {
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (hours < 24) return `${hours}h ${mins}m`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ${hours % 24}h`;
+}
+
 export default function CalculatorPage() {
   const printRef = useRef<HTMLDivElement>(null);
-  const [location] = useLocation();
+  const [, navigate] = useLocation();
   
+  // Main inputs
   const [inputs, setInputs] = useState({
     customerName: "",
     address: "",
-    currentBill: 160.20,
-    currentKwh: 418,
-    utilityRateIncrease: 4.84,
-    solarRate: 0.332,
+    // Utility
+    utilityRatePreset: "customer",
+    utilityRateCustom: 0.359,
+    utilityIncreasePreset: "national_5yr",
+    utilityIncreaseCustom: 4.84,
+    // Inflation
+    cpiPreset: "national_10yr",
+    cpiCustom: 2.86,
+    // Solar
+    solarMonthlyPayment: 156,
     solarEscalator: 3.5,
+    solarOffset: 99,
+    rebatesYearly: 400,
+    termYears: 25,
   });
-  
+
+  // Monthly usage (12 months)
+  const [monthlyUsage, setMonthlyUsage] = useState<number[]>([
+    418, 346, 340, 322, 363, 317, 384, 516, 466, 388, 306, 322
+  ]);
+
+  // Current bill input (for calculating rate from bill)
+  const [currentBill, setCurrentBill] = useState(160.20);
+  const [currentMonthKwh, setCurrentMonthKwh] = useState(418);
+
+  // Historical data for address
+  const [historicalData, setHistoricalData] = useState<HistoricalSummary | null>(null);
+  const [historicalLoading, setHistoricalLoading] = useState(false);
+  const [searchedAddress, setSearchedAddress] = useState("");
+
+  // Parse query params on load
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const address = params.get("address");
@@ -105,32 +193,89 @@ export default function CalculatorPage() {
         ...(address && { address: decodeURIComponent(address) }),
         ...(name && { customerName: decodeURIComponent(name) }),
       }));
+      if (address) {
+        fetchHistoricalData(decodeURIComponent(address));
+      }
     }
   }, []);
-  
-  const calculatedUtilityRate = inputs.currentKwh > 0 ? inputs.currentBill / inputs.currentKwh : 0.35;
-  const monthlyUsage = inputs.currentKwh || 374;
-  
+
+  // Fetch historical data for address
+  const fetchHistoricalData = async (address: string) => {
+    if (!address.trim()) return;
+    
+    setHistoricalLoading(true);
+    setSearchedAddress(address);
+    
+    try {
+      // Parse town from address
+      const parts = address.split(/[,\-]/);
+      let town = "";
+      if (parts.length >= 2) {
+        town = parts[parts.length - 1].trim().toUpperCase().replace(/\s*(MA|MASSACHUSETTS)$/i, "").trim();
+      } else {
+        town = address.trim().toUpperCase();
+      }
+      
+      const data = await apiFetch<HistoricalSummary>(
+        `/api/historical/summary?town=${encodeURIComponent(town)}`
+      );
+      setHistoricalData(data);
+    } catch (e) {
+      console.error("Failed to fetch historical data:", e);
+      setHistoricalData(null);
+    } finally {
+      setHistoricalLoading(false);
+    }
+  };
+
+  // Calculated values
+  const yearlyKwh = useMemo(() => monthlyUsage.reduce((a, b) => a + b, 0), [monthlyUsage]);
+  const avgMonthlyKwh = useMemo(() => Math.round(yearlyKwh / 12), [yearlyKwh]);
+  const calculatedRateFromBill = currentMonthKwh > 0 ? currentBill / currentMonthKwh : 0.359;
+
+  // Get effective utility rate
+  const effectiveUtilityRate = useMemo(() => {
+    if (inputs.utilityRatePreset === "customer") {
+      return calculatedRateFromBill;
+    }
+    const preset = UTILITY_RATE_PRESETS.find(p => p.value === inputs.utilityRatePreset);
+    return preset?.rate || 0.336;
+  }, [inputs.utilityRatePreset, calculatedRateFromBill]);
+
+  // Get effective utility increase
+  const effectiveUtilityIncrease = useMemo(() => {
+    if (inputs.utilityIncreasePreset === "customer") {
+      return inputs.utilityIncreaseCustom / 100;
+    }
+    const preset = UTILITY_INCREASE_PRESETS.find(p => p.value === inputs.utilityIncreasePreset);
+    return preset?.rate || 0.0484;
+  }, [inputs.utilityIncreasePreset, inputs.utilityIncreaseCustom]);
+
+  // Calculate yearly data
   const yearlyData = useMemo(() => calculateSavingsModel({
-    currentUtilityRate: calculatedUtilityRate,
-    monthlyUsage,
-    utilityRateIncrease: inputs.utilityRateIncrease / 100,
-    solarRate: inputs.solarRate,
+    currentUtilityRate: effectiveUtilityRate,
+    monthlyUsage: avgMonthlyKwh,
+    utilityRateIncrease: effectiveUtilityIncrease,
+    solarMonthlyPayment: inputs.solarMonthlyPayment,
     solarEscalator: inputs.solarEscalator / 100,
-    years: 25,
-  }), [calculatedUtilityRate, monthlyUsage, inputs.utilityRateIncrease, inputs.solarRate, inputs.solarEscalator]);
-  
+    solarOffset: inputs.solarOffset / 100,
+    rebatesYearly: inputs.rebatesYearly,
+    years: inputs.termYears,
+  }), [effectiveUtilityRate, avgMonthlyKwh, effectiveUtilityIncrease, inputs]);
+
   const year1 = yearlyData[0];
-  const year10 = yearlyData[9];
-  const year25 = yearlyData[24];
+  const year10 = yearlyData[9] || yearlyData[yearlyData.length - 1];
+  const yearFinal = yearlyData[yearlyData.length - 1];
   
   const first10YearsSavings = yearlyData.slice(0, 10).reduce((sum, y) => sum + y.savingsYearly, 0);
-  const avgYearlySavingsFirst10 = first10YearsSavings / 10;
-  
+  const avgYearlySavingsFirst10 = first10YearsSavings / Math.min(10, yearlyData.length);
+
+  // Calculate estimated monthly bills from usage
+  const estimatedMonthlyBills = useMemo(() => {
+    return monthlyUsage.map(kwh => kwh * effectiveUtilityRate);
+  }, [monthlyUsage, effectiveUtilityRate]);
+
   const handlePrint = () => {
-    const printContent = printRef.current;
-    if (!printContent) return;
-    
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
     
@@ -176,11 +321,9 @@ export default function CalculatorPage() {
             padding: 12px;
           }
           .card.highlight { background: #e8f5e9; border-color: #4caf50; }
-          .card.warning { background: #fff3e0; border-color: #ff9800; }
           .card h4 { font-size: 10px; color: #666; text-transform: uppercase; margin-bottom: 4px; }
           .card .value { font-size: 20px; font-weight: bold; color: #1a1a1a; }
           .card .value.green { color: #2e7d32; }
-          .card .value.orange { color: #e65100; }
           .card .subtext { font-size: 9px; color: #888; margin-top: 2px; }
           .comparison { 
             display: grid; 
@@ -222,13 +365,15 @@ export default function CalculatorPage() {
             color: #666;
             margin-top: 12px;
           }
+          .inputs-summary { font-size: 9px; margin-bottom: 12px; }
+          .inputs-summary td { padding: 3px 8px; }
         </style>
       </head>
       <body>
         <div class="header">
           <div>
             <h1>☀️ Solar Savings Analysis</h1>
-            <div class="subtitle">25-Year Cost Comparison Report</div>
+            <div class="subtitle">${inputs.termYears}-Year Cost Comparison Report</div>
           </div>
           <div class="date">
             Generated: ${new Date().toLocaleDateString()}<br/>
@@ -240,24 +385,37 @@ export default function CalculatorPage() {
           <h3>${inputs.customerName || 'Customer'}</h3>
           <p>${inputs.address || 'Address not specified'}</p>
         </div>
+
+        <table class="inputs-summary">
+          <tr>
+            <td><strong>Utility Rate:</strong> ${formatCurrencyDecimal(effectiveUtilityRate)}/kWh</td>
+            <td><strong>Annual Increase:</strong> ${formatPercent(effectiveUtilityIncrease)}</td>
+            <td><strong>Avg Monthly Usage:</strong> ${avgMonthlyKwh} kWh</td>
+          </tr>
+          <tr>
+            <td><strong>Solar Payment:</strong> ${formatCurrency(inputs.solarMonthlyPayment)}/mo</td>
+            <td><strong>Solar Escalator:</strong> ${inputs.solarEscalator}%</td>
+            <td><strong>Solar Offset:</strong> ${inputs.solarOffset}%</td>
+          </tr>
+        </table>
         
         <div class="comparison">
           <div class="comparison-box utility">
             <h4>Option A: Stay with Utility (Variable)</h4>
-            <div class="amount">${formatCurrency(year1.utilityMonthly)}/mo</div>
-            <div style="font-size: 10px; margin-top: 4px;">25-Year Total: ${formatCurrency(yearlyData.reduce((s, y) => s + y.utilityMonthly * 12, 0))}</div>
+            <div class="amount">${formatCurrency(year1?.utilityMonthly || 0)}/mo</div>
+            <div style="font-size: 10px; margin-top: 4px;">${inputs.termYears}-Year Total: ${formatCurrency(yearlyData.reduce((s, y) => s + y.utilityMonthly * 12, 0))}</div>
           </div>
           <div class="comparison-box solar">
             <h4>Option B: Switch to Solar (Predictable)</h4>
-            <div class="amount">${formatCurrency(year1.solarMonthly)}/mo</div>
-            <div style="font-size: 10px; margin-top: 4px;">25-Year Total: ${formatCurrency(yearlyData.reduce((s, y) => s + y.solarMonthly * 12, 0))}</div>
+            <div class="amount">${formatCurrency(year1?.solarMonthly || 0)}/mo</div>
+            <div style="font-size: 10px; margin-top: 4px;">${inputs.termYears}-Year Total: ${formatCurrency(yearlyData.reduce((s, y) => s + y.solarMonthly * 12, 0))}</div>
           </div>
         </div>
         
         <div class="grid">
           <div class="card highlight">
             <h4>Monthly Advantage</h4>
-            <div class="value green">+${formatCurrency(year1.savingsMonthly)}</div>
+            <div class="value green">+${formatCurrency(year1?.savingsMonthly || 0)}</div>
             <div class="subtext">Starting from Day 1</div>
           </div>
           <div class="card highlight">
@@ -266,27 +424,9 @@ export default function CalculatorPage() {
             <div class="subtext">Per year, first decade</div>
           </div>
           <div class="card highlight">
-            <h4>25-Year Total Savings</h4>
-            <div class="value green">${formatCurrency(year25.cumulativeSavings)}</div>
+            <h4>${inputs.termYears}-Year Total Savings</h4>
+            <div class="value green">${formatCurrency(yearFinal?.cumulativeSavings || 0)}</div>
             <div class="subtext">Lifetime benefit</div>
-          </div>
-        </div>
-        
-        <div class="grid">
-          <div class="card">
-            <h4>Current Utility Rate</h4>
-            <div class="value">$${calculatedUtilityRate.toFixed(3)}/kWh</div>
-            <div class="subtext">+${inputs.utilityRateIncrease}% annual increase</div>
-          </div>
-          <div class="card">
-            <h4>Solar Rate</h4>
-            <div class="value">$${inputs.solarRate.toFixed(3)}/kWh</div>
-            <div class="subtext">+${inputs.solarEscalator}% annual escalator</div>
-          </div>
-          <div class="card">
-            <h4>Monthly Usage</h4>
-            <div class="value">${monthlyUsage} kWh</div>
-            <div class="subtext">Based on current bill</div>
           </div>
         </div>
         
@@ -305,7 +445,7 @@ export default function CalculatorPage() {
               </tr>
             </thead>
             <tbody>
-              ${[0, 4, 9, 14, 19, 24].map(i => {
+              ${[0, 4, 9, 14, 19, 24].filter(i => i < yearlyData.length).map(i => {
                 const y = yearlyData[i];
                 return `
                   <tr>
@@ -325,8 +465,7 @@ export default function CalculatorPage() {
         
         <div class="disclaimer">
           <strong>Disclaimer:</strong> This analysis is for illustrative purposes only. Actual savings may vary based on actual utility rate changes, 
-          solar system performance, weather conditions, and other factors. Past utility rate increases do not guarantee future increases. 
-          Consult with a solar professional for a detailed assessment.
+          solar system performance, weather conditions, and other factors. Consult with a solar professional for a detailed assessment.
         </div>
         
         <div class="footer">
@@ -338,13 +477,11 @@ export default function CalculatorPage() {
     
     printWindow.document.close();
     printWindow.focus();
-    setTimeout(() => {
-      printWindow.print();
-    }, 250);
+    setTimeout(() => printWindow.print(), 250);
   };
   
   return (
-    <AppShell subtitle="Solar savings calculator and comparison tool">
+    <AppShell subtitle="Solar savings calculator matching ComparisonCalc model">
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
@@ -353,7 +490,7 @@ export default function CalculatorPage() {
               Solar Savings Calculator
             </h1>
             <p className="text-muted-foreground mt-1">
-              Compare utility costs vs solar and generate customer reports
+              Compare utility costs vs solar over {inputs.termYears} years
             </p>
           </div>
           <Button onClick={handlePrint} className="gap-2" data-testid="button-print-pdf">
@@ -374,11 +511,12 @@ export default function CalculatorPage() {
             </TabsTrigger>
             <TabsTrigger value="model" data-testid="tab-model">
               <DollarSign className="h-4 w-4 mr-2" />
-              25-Year Model
+              {inputs.termYears}-Year Model
             </TabsTrigger>
           </TabsList>
           
-          <TabsContent value="inputs" className="space-y-4 mt-4">
+          <TabsContent value="inputs" className="space-y-6 mt-4">
+            {/* Customer Info & Address Search */}
             <div className="grid md:grid-cols-2 gap-6">
               <Card>
                 <CardHeader>
@@ -400,103 +538,234 @@ export default function CalculatorPage() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="address">Property Address</Label>
-                    <Input
-                      id="address"
-                      placeholder="Enter address"
-                      value={inputs.address}
-                      onChange={(e) => setInputs(prev => ({ ...prev, address: e.target.value }))}
-                      data-testid="input-address"
-                    />
+                    <div className="flex gap-2">
+                      <Input
+                        id="address"
+                        placeholder="Enter address (e.g., 123 Main St, Boston)"
+                        value={inputs.address}
+                        onChange={(e) => setInputs(prev => ({ ...prev, address: e.target.value }))}
+                        data-testid="input-address"
+                        className="flex-1"
+                      />
+                      <Button 
+                        variant="secondary" 
+                        onClick={() => fetchHistoricalData(inputs.address)}
+                        disabled={historicalLoading || !inputs.address.trim()}
+                        data-testid="button-search-address"
+                      >
+                        {historicalLoading ? <Spinner className="h-4 w-4" /> : <Search className="h-4 w-4" />}
+                      </Button>
+                    </div>
                   </div>
+                  
+                  {/* Historical Data Display */}
+                  {searchedAddress && (
+                    <div className="mt-4 p-3 bg-muted/50 rounded-lg">
+                      <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                        <AlertTriangle className="h-4 w-4 text-orange-500" />
+                        Historical Outage Data
+                      </h4>
+                      {historicalLoading ? (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Spinner className="h-4 w-4" /> Loading...
+                        </div>
+                      ) : historicalData && historicalData.totalOutages > 0 ? (
+                        <div className="grid grid-cols-3 gap-2 text-xs">
+                          <div className="text-center p-2 bg-background rounded">
+                            <div className="font-bold text-lg" data-testid="text-hist-outages">{historicalData.totalOutages}</div>
+                            <div className="text-muted-foreground">Outages</div>
+                          </div>
+                          <div className="text-center p-2 bg-background rounded">
+                            <div className="font-bold text-lg" data-testid="text-hist-customers">{historicalData.totalCustomersAffected.toLocaleString()}</div>
+                            <div className="text-muted-foreground">Affected</div>
+                          </div>
+                          <div className="text-center p-2 bg-background rounded">
+                            <div className="font-bold text-lg" data-testid="text-hist-duration">{formatDuration(historicalData.avgDurationMinutes)}</div>
+                            <div className="text-muted-foreground">Avg Duration</div>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No historical data found for this area.</p>
+                      )}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
-              
+
+              {/* Current Bill Input */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Zap className="h-5 w-5" />
                     Current Utility Bill
                   </CardTitle>
-                  <CardDescription>Enter the customer's most recent bill</CardDescription>
+                  <CardDescription>Enter your most recent bill to calculate rate</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="currentBill">Amount Due ($)</Label>
-                    <Input
-                      id="currentBill"
-                      type="number"
-                      step="0.01"
-                      value={inputs.currentBill}
-                      onChange={(e) => setInputs(prev => ({ ...prev, currentBill: parseFloat(e.target.value) || 0 }))}
-                      data-testid="input-current-bill"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="currentKwh">kWh Used</Label>
-                    <Input
-                      id="currentKwh"
-                      type="number"
-                      value={inputs.currentKwh}
-                      onChange={(e) => setInputs(prev => ({ ...prev, currentKwh: parseInt(e.target.value) || 0 }))}
-                      data-testid="input-current-kwh"
-                    />
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="currentMonthKwh">Current Month kWh</Label>
+                      <Input
+                        id="currentMonthKwh"
+                        type="number"
+                        value={currentMonthKwh}
+                        onChange={(e) => setCurrentMonthKwh(parseInt(e.target.value) || 0)}
+                        data-testid="input-current-kwh"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="currentBill">Amount Due ($)</Label>
+                      <Input
+                        id="currentBill"
+                        type="number"
+                        step="0.01"
+                        value={currentBill}
+                        onChange={(e) => setCurrentBill(parseFloat(e.target.value) || 0)}
+                        data-testid="input-current-bill"
+                      />
+                    </div>
                   </div>
                   <Separator />
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-muted-foreground">Calculated Rate:</span>
-                    <Badge variant="secondary" className="text-base" data-testid="badge-calculated-rate">
-                      ${calculatedUtilityRate.toFixed(3)}/kWh
-                    </Badge>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Effective $/kWh:</span>
+                      <Badge variant="secondary" data-testid="badge-calculated-rate">
+                        ${calculatedRateFromBill.toFixed(4)}
+                      </Badge>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Yearly kWh:</span>
+                      <Badge variant="outline">{yearlyKwh.toLocaleString()}</Badge>
+                    </div>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Avg Monthly kWh:</span>
+                    <Badge variant="outline">{avgMonthlyKwh}</Badge>
                   </div>
                 </CardContent>
               </Card>
-              
+            </div>
+
+            {/* Rate Presets */}
+            <div className="grid md:grid-cols-3 gap-6">
               <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <TrendingUp className="h-5 w-5" />
-                    Rate Assumptions
-                  </CardTitle>
-                  <CardDescription>Customize projection parameters</CardDescription>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Utility Rate Preset</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="utilityIncrease">Utility Annual Increase (%)</Label>
+                <CardContent className="space-y-3">
+                  <Select
+                    value={inputs.utilityRatePreset}
+                    onValueChange={(v) => setInputs(prev => ({ ...prev, utilityRatePreset: v }))}
+                  >
+                    <SelectTrigger data-testid="select-utility-rate">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {UTILITY_RATE_PRESETS.map(p => (
+                        <SelectItem key={p.value} value={p.value}>
+                          {p.label} {p.value !== "customer" && `(${formatCurrencyDecimal(p.rate)})`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <div className="text-sm text-center p-2 bg-muted rounded">
+                    Effective: <strong>{formatCurrencyDecimal(effectiveUtilityRate)}/kWh</strong>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Utility Annual Increase</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <Select
+                    value={inputs.utilityIncreasePreset}
+                    onValueChange={(v) => setInputs(prev => ({ ...prev, utilityIncreasePreset: v }))}
+                  >
+                    <SelectTrigger data-testid="select-utility-increase">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {UTILITY_INCREASE_PRESETS.map(p => (
+                        <SelectItem key={p.value} value={p.value}>
+                          {p.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {inputs.utilityIncreasePreset === "customer" && (
                     <Input
-                      id="utilityIncrease"
                       type="number"
                       step="0.1"
-                      value={inputs.utilityRateIncrease}
-                      onChange={(e) => setInputs(prev => ({ ...prev, utilityRateIncrease: parseFloat(e.target.value) || 0 }))}
-                      data-testid="input-utility-increase"
+                      placeholder="Custom %"
+                      value={inputs.utilityIncreaseCustom}
+                      onChange={(e) => setInputs(prev => ({ ...prev, utilityIncreaseCustom: parseFloat(e.target.value) || 0 }))}
+                      data-testid="input-utility-increase-custom"
                     />
-                    <p className="text-xs text-muted-foreground">National 5-year average: 4.84%</p>
+                  )}
+                  <div className="text-sm text-center p-2 bg-muted rounded">
+                    Effective: <strong>{formatPercent(effectiveUtilityIncrease)}/yr</strong>
                   </div>
                 </CardContent>
               </Card>
-              
+
               <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Sun className="h-5 w-5" />
-                    Solar Terms
-                  </CardTitle>
-                  <CardDescription>Solar rate and escalator</CardDescription>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">CPI Inflation</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="solarRate">Solar Rate ($/kWh)</Label>
+                <CardContent className="space-y-3">
+                  <Select
+                    value={inputs.cpiPreset}
+                    onValueChange={(v) => setInputs(prev => ({ ...prev, cpiPreset: v }))}
+                  >
+                    <SelectTrigger data-testid="select-cpi">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CPI_INFLATION_PRESETS.map(p => (
+                        <SelectItem key={p.value} value={p.value}>
+                          {p.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {inputs.cpiPreset === "custom" && (
                     <Input
-                      id="solarRate"
                       type="number"
-                      step="0.001"
-                      value={inputs.solarRate}
-                      onChange={(e) => setInputs(prev => ({ ...prev, solarRate: parseFloat(e.target.value) || 0 }))}
-                      data-testid="input-solar-rate"
+                      step="0.1"
+                      placeholder="Custom %"
+                      value={inputs.cpiCustom}
+                      onChange={(e) => setInputs(prev => ({ ...prev, cpiCustom: parseFloat(e.target.value) || 0 }))}
+                      data-testid="input-cpi-custom"
+                    />
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Solar Terms */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Sun className="h-5 w-5" />
+                  Solar Terms
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="solarPayment">Monthly Payment ($)</Label>
+                    <Input
+                      id="solarPayment"
+                      type="number"
+                      value={inputs.solarMonthlyPayment}
+                      onChange={(e) => setInputs(prev => ({ ...prev, solarMonthlyPayment: parseFloat(e.target.value) || 0 }))}
+                      data-testid="input-solar-payment"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="solarEscalator">Annual Escalator (%)</Label>
+                    <Label htmlFor="solarEscalator">Escalator (%/yr)</Label>
                     <Input
                       id="solarEscalator"
                       type="number"
@@ -506,9 +775,94 @@ export default function CalculatorPage() {
                       data-testid="input-solar-escalator"
                     />
                   </div>
-                </CardContent>
-              </Card>
-            </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="solarOffset">% Offset</Label>
+                    <Input
+                      id="solarOffset"
+                      type="number"
+                      step="1"
+                      value={inputs.solarOffset}
+                      onChange={(e) => setInputs(prev => ({ ...prev, solarOffset: parseFloat(e.target.value) || 0 }))}
+                      data-testid="input-solar-offset"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="termYears">Term (years)</Label>
+                    <Input
+                      id="termYears"
+                      type="number"
+                      value={inputs.termYears}
+                      onChange={(e) => setInputs(prev => ({ ...prev, termYears: parseInt(e.target.value) || 25 }))}
+                      data-testid="input-term-years"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="rebates">Rebates ($/yr)</Label>
+                    <Input
+                      id="rebates"
+                      type="number"
+                      value={inputs.rebatesYearly}
+                      onChange={(e) => setInputs(prev => ({ ...prev, rebatesYearly: parseFloat(e.target.value) || 0 }))}
+                      data-testid="input-rebates"
+                    />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Monthly Usage Table */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <TrendingUp className="h-5 w-5" />
+                  Monthly Usage (kWh)
+                </CardTitle>
+                <CardDescription>Enter 12 months of usage for accurate yearly estimates</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-2 px-2">Month</th>
+                        <th className="text-center py-2 px-2">Usage (kWh)</th>
+                        <th className="text-right py-2 px-2">Est. Bill</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {MONTHS.map((month, i) => (
+                        <tr key={month} className="border-b hover:bg-muted/50">
+                          <td className="py-2 px-2 font-medium">{month}</td>
+                          <td className="py-1 px-2">
+                            <Input
+                              type="number"
+                              className="w-24 mx-auto text-center h-8"
+                              value={monthlyUsage[i]}
+                              onChange={(e) => {
+                                const newUsage = [...monthlyUsage];
+                                newUsage[i] = parseInt(e.target.value) || 0;
+                                setMonthlyUsage(newUsage);
+                              }}
+                              data-testid={`input-usage-${month.toLowerCase()}`}
+                            />
+                          </td>
+                          <td className="text-right py-2 px-2 text-muted-foreground">
+                            {formatCurrency(estimatedMonthlyBills[i])}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-muted/50 font-medium">
+                        <td className="py-2 px-2">Total / Average</td>
+                        <td className="text-center py-2 px-2">{yearlyKwh.toLocaleString()} / {avgMonthlyKwh}</td>
+                        <td className="text-right py-2 px-2">{formatCurrency(estimatedMonthlyBills.reduce((a, b) => a + b, 0))}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
           
           <TabsContent value="dashboard" className="space-y-4 mt-4" ref={printRef}>
@@ -526,7 +880,7 @@ export default function CalculatorPage() {
                     <div className="text-3xl font-bold text-red-700 dark:text-red-500" data-testid="text-utility-cost">
                       {formatCurrency(yearlyData.reduce((s, y) => s + y.utilityMonthly * 12, 0))}
                     </div>
-                    <div className="text-sm text-muted-foreground">25-year total at current trajectory</div>
+                    <div className="text-sm text-muted-foreground">{inputs.termYears}-year total at current trajectory</div>
                   </div>
                   
                   <div className="p-6 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-900">
@@ -534,7 +888,7 @@ export default function CalculatorPage() {
                     <div className="text-3xl font-bold text-green-700 dark:text-green-500" data-testid="text-solar-cost">
                       {formatCurrency(yearlyData.reduce((s, y) => s + y.solarMonthly * 12, 0))}
                     </div>
-                    <div className="text-sm text-muted-foreground">25-year total with solar</div>
+                    <div className="text-sm text-muted-foreground">{inputs.termYears}-year total with solar</div>
                   </div>
                 </div>
                 
@@ -542,13 +896,13 @@ export default function CalculatorPage() {
                   <div className="text-center p-4 bg-card rounded-lg border">
                     <div className="text-xs text-muted-foreground mb-1">Monthly Advantage</div>
                     <div className="text-2xl font-bold text-green-600" data-testid="text-monthly-advantage">
-                      +{formatCurrency(year1.savingsMonthly)}
+                      +{formatCurrency(year1?.savingsMonthly || 0)}
                     </div>
                   </div>
                   <div className="text-center p-4 bg-card rounded-lg border">
-                    <div className="text-xs text-muted-foreground mb-1">Total 25-Year Savings</div>
+                    <div className="text-xs text-muted-foreground mb-1">Total {inputs.termYears}-Year Savings</div>
                     <div className="text-2xl font-bold text-green-600" data-testid="text-total-savings">
-                      {formatCurrency(year25.cumulativeSavings)}
+                      {formatCurrency(yearFinal?.cumulativeSavings || 0)}
                     </div>
                   </div>
                   <div className="text-center p-4 bg-card rounded-lg border">
@@ -560,7 +914,7 @@ export default function CalculatorPage() {
                   <div className="text-center p-4 bg-card rounded-lg border">
                     <div className="text-xs text-muted-foreground mb-1">Year 1 Savings</div>
                     <div className="text-2xl font-bold" data-testid="text-year1-savings">
-                      {formatPercent(year1.percentSaved)}
+                      {formatPercent(year1?.percentSaved || 0)}
                     </div>
                   </div>
                 </div>
@@ -573,17 +927,15 @@ export default function CalculatorPage() {
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Current Utility Rate</span>
-                        <span className="font-medium">${calculatedUtilityRate.toFixed(3)} per kWh</span>
+                        <span className="font-medium">{formatCurrencyDecimal(effectiveUtilityRate)} per kWh</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Effective Solar Rate</span>
-                        <span className="font-medium">${inputs.solarRate.toFixed(3)} per kWh</span>
+                        <span className="text-muted-foreground">Solar Monthly Payment</span>
+                        <span className="font-medium">{formatCurrency(inputs.solarMonthlyPayment)}/mo</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Rate Difference</span>
-                        <span className="font-medium text-green-600">
-                          -{formatPercent((calculatedUtilityRate - inputs.solarRate) / calculatedUtilityRate)}
-                        </span>
+                        <span className="text-muted-foreground">Annual Rebates</span>
+                        <span className="font-medium text-green-600">+{formatCurrency(inputs.rebatesYearly)}</span>
                       </div>
                     </div>
                   </div>
@@ -603,7 +955,7 @@ export default function CalculatorPage() {
           <TabsContent value="model" className="mt-4">
             <Card>
               <CardHeader>
-                <CardTitle>25-Year Pricing Model</CardTitle>
+                <CardTitle>{inputs.termYears}-Year Pricing Model</CardTitle>
                 <CardDescription>Year-by-year comparison of utility vs solar costs</CardDescription>
               </CardHeader>
               <CardContent>
