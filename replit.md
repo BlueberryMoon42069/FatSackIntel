@@ -110,11 +110,18 @@ Preferred communication style: Simple, everyday language.
 - `GET /api/admin/status` - Data pipeline status counts
 
 ### Solar Calculator (Feb 5)
-- **Calculator Page** (`/calculator`): Solar savings comparison tool based on ComparisonCalc spreadsheet model
-  - **Inputs Tab**: Customer name, address, current bill, kWh usage, utility rate increase %, solar rate, escalator
-  - **Dashboard Tab**: Option A (utility) vs Option B (solar) 25-year comparison with monthly advantage and total savings
-  - **Model Tab**: 25-year yearly pricing breakdown table
-  - **PDF Export**: Print Report button generates printable one-page summary with all key metrics
+- **Calculator Page** (`/calculator`): Solar savings comparison tool matching ComparisonCalc spreadsheet exactly
+  - **Inputs Tab**:
+    - Customer name and property address with search button
+    - Current bill with kWh usage to auto-calculate effective rate
+    - **Preset Dropdowns**: Utility rate (Customer, New England, MA, National Grid, Eversource, Unitil), Utility increase (Customer, MA 5yr/10yr/25yr, NE 5yr, National 5yr), CPI inflation (National 10yr/5yr, Custom)
+    - **Solar Terms**: Monthly payment ($/mo), escalator (%/yr), % offset, term (years), rebates ($/yr)
+    - **12-Month Usage Table**: Jan-Dec kWh inputs with auto-calculated yearly total, average, and estimated monthly bills
+    - **Address Search**: Fetches historical outage data (total outages, customers affected, avg duration) inline
+  - **Dashboard Tab**: Option A (utility) vs Option B (solar) comparison with monthly advantage and total savings
+  - **Model Tab**: Year-by-year pricing breakdown table showing utility, solar, savings, and cumulative totals
+  - **Calculation Model**: Uses solar monthly payment + escalator, % offset for remaining utility, annual rebates
+  - **PDF Export**: Print Report button generates printable one-page summary
   - Supports query params: `?address=...&name=...` to pre-fill from outage detail
 
 ### Outage Detail Drawer (Feb 5)
