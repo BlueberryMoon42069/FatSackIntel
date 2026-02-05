@@ -105,5 +105,21 @@ Preferred communication style: Simple, everyday language.
 - `GET /api/historical` - Search historical outages with filters
 - `GET /api/historical/stats` - Summary stats (3,158 records, utilities, years)
 - `GET /api/historical/heatmap` - Town-level aggregations for map visualization
+- `GET /api/historical/summary` - Location-specific historical summary (town/street aggregations)
 - `POST /api/admin/upload-historical` - Upload DPU Excel files
 - `GET /api/admin/status` - Data pipeline status counts
+
+### Solar Calculator (Feb 5)
+- **Calculator Page** (`/calculator`): Solar savings comparison tool based on ComparisonCalc spreadsheet model
+  - **Inputs Tab**: Customer name, address, current bill, kWh usage, utility rate increase %, solar rate, escalator
+  - **Dashboard Tab**: Option A (utility) vs Option B (solar) 25-year comparison with monthly advantage and total savings
+  - **Model Tab**: 25-year yearly pricing breakdown table
+  - **PDF Export**: Print Report button generates printable one-page summary with all key metrics
+  - Supports query params: `?address=...&name=...` to pre-fill from outage detail
+
+### Outage Detail Drawer (Feb 5)
+- Click any outage on map or in list to open detail drawer
+- Shows Knock Score, Outage Risk, Social Signal, Solar Potential breakdown
+- Fetches historical data summary from `/api/historical/summary` with town/street parsing
+- Displays total incidents, customers affected, avg duration, common causes, recent incidents
+- Links to Calculator page with address pre-filled and to full Historical search
