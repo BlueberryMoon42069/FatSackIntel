@@ -134,12 +134,27 @@ export default function LiveMapPage() {
     return () => controller.abort();
   }, [url, debouncedBbox, debouncedProviders]);
 
+  const [selectedOutageId, setSelectedOutageId] = useState<string | number | null>(null);
+
+  const outageList = useMemo(() => {
+    if (!state.data?.features?.features) return [];
+    return state.data.features.features
+      .map((f: any) => ({
+        id: f.properties?.id,
+        provider: f.properties?.provider,
+        customers: f.properties?.customers ?? 0,
+        status: f.properties?.status,
+        location: f.properties?.location || "Unknown Location",
+      }))
+      .sort((a, b) => (b.customers || 0) - (a.customers || 0));
+  }, [state.data]);
+
   const featureCount = state.data?.features?.features?.length ?? 0;
 
   return (
     <AppShell subtitle="Street-level geometry (when available) with provider toggles and live bbox querying.">
       <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
-        <div className="grid gap-4">
+        <div className="grid gap-4 h-[70vh] overflow-y-auto pr-2">
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base" data-testid="text-live-title">
@@ -214,6 +229,37 @@ export default function LiveMapPage() {
             </CardContent>
           </Card>
 
+          {outageList.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-semibold">Active Outages by Severity</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-2 p-0">
+                <div className="max-h-[300px] overflow-y-auto px-4 pb-4">
+                  {outageList.map((outage) => (
+                    <div 
+                      key={outage.id}
+                      className={`p-2 rounded-md border mb-2 cursor-pointer transition-colors ${selectedOutageId === outage.id ? 'bg-primary/10 border-primary' : 'hover:bg-muted'}`}
+                      onClick={() => setSelectedOutageId(outage.id)}
+                      data-testid={`outage-item-${outage.id}`}
+                    >
+                      <div className="flex justify-between items-start">
+                        <div className="font-medium text-sm truncate max-w-[180px]">{outage.location}</div>
+                        <Badge variant={outage.customers > 100 ? "destructive" : "secondary"} className="text-[10px] px-1.5 py-0">
+                          {outage.customers.toLocaleString()} Affected
+                        </Badge>
+                      </div>
+                      <div className="flex justify-between items-center mt-1">
+                        <span className="text-[10px] text-muted-foreground uppercase">{outage.provider}</span>
+                        <span className="text-[10px] text-muted-foreground">{outage.status}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {state.loading ? (
             <div className="rounded-xl border bg-card p-6 flex items-center gap-3" data-testid="state-loading">
               <Spinner className="h-5 w-5" />
@@ -240,6 +286,20 @@ export default function LiveMapPage() {
                   key={`${state.data.updatedAt}-${featureCount}`}
                   data={state.data.features as any}
                   {...({
+                    onEachFeature: (feature: any, layer: any) => {
+                      layer.on('click', () => {
+                        setSelectedOutageId(feature.properties?.id);
+                      });
+                      if (feature.properties?.customers) {
+                        layer.bindPopup(`
+                          <div class="text-xs p-1">
+                            <div class="font-bold">${feature.properties.location || 'Outage'}</div>
+                            <div>Affected: ${feature.properties.customers.toLocaleString()}</div>
+                            <div>Provider: ${feature.properties.provider}</div>
+                          </div>
+                        `);
+                      }
+                    },
                     style: (f: any) => {
                       const provider = f?.properties?.provider as string | undefined;
                       const color = provider === "mema" ? "#2563eb" : "#0ea5e9";
