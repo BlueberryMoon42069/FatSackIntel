@@ -124,6 +124,18 @@ Preferred communication style: Simple, everyday language.
   - **PDF Export**: Print Report button generates printable one-page summary
   - Supports query params: `?address=...&name=...` to pre-fill from outage detail
 
+### Social Scrapers & Social Page Fix (Feb 12)
+- **Fixed `/api/social` endpoint** — new aggregation endpoint that returns town-level social scores, trends, dominant topic, and top keywords
+- **Fixed Social Page** — replaced all hardcoded stat cards (Clinton/Westborough, +12%, Billing) with real computed values from API
+- **Nextdoor Scraper** (`server/scrapers/nextdoor.ts`): Hits Nextdoor's public outage map API for 10 MA towns
+- **Facebook Scraper** (`server/scrapers/facebook.ts`): Fetch-based public page scraper (no Playwright) for community groups — classifies posts as outage/billing/intent
+- **Admin Scraper Buttons**: Scrape Nextdoor, Scrape Facebook, Run All Social buttons on admin page
+- **Auto-scheduler**: Twitter + Nextdoor scrapers run on startup (30s delay) and every 30 minutes
+- **New Admin API Endpoints**:
+  - `POST /api/admin/scrape/nextdoor` — trigger Nextdoor scrape
+  - `POST /api/admin/scrape/facebook` — trigger Facebook scrape
+  - `POST /api/admin/scrape/all-social` — run Twitter, Nextdoor, Facebook simultaneously
+
 ### Outage Detail Drawer (Feb 5)
 - Click any outage on map or in list to open detail drawer
 - Shows Knock Score, Outage Risk, Social Signal, Solar Potential breakdown
