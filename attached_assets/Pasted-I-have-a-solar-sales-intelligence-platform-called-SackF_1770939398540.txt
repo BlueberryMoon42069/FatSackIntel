@@ -1,0 +1,538 @@
+I have a solar sales intelligence platform called SackFinder. It's a React/TypeScript + Express/Node + PostgreSQL app. 
+I need you to fix existing bugs and add Facebook/Nextdoor social scrapers. Here is everything you need to know:
+
+## PROJECT STRUCTURE
+- client/src/pages/social.tsx — Social signals page (BROKEN, fix this first)
+- server/routes.ts — Express API routes  
+- server/scrapers/social.ts — Social scraping logic (SocialScraper class)
+- server/scrapers/nextdoor.ts — CREATE THIS FILE
+- server/scrapers/facebook.ts — CREATE THIS FILE
+- shared/schema.ts — Database schema (social_signals table exists)
+- server/storage.ts — Database access layer
+
+## TASK 1: FIX THE MISSING /api/social ENDPOINT
+
+In server/routes.ts, add this new endpoint BEFORE the existing social routes:
+```typescript
+app.get("/api/social", async (req, res) => {
+  try {
+    const { hours = "24" } = req.query;
+    const hoursNum = parseInt(hours as string);
+    
+    // Get current window signals
+    const currentSignals = await storage.getRecentSocialSignals(hoursNum);
+    // Get prior window for trend calculation
+    const priorSignals = await storage.getRecentSocialSignals(hoursNum * 2);
+    const olderSignals = priorSignals.filter(s => {
+      const age = Date.now() - new Date(s.timestamp).getTime();
+      return age > hoursNum * 3600 * 1000; // older than current window
+    });
+    
+    // Aggregate by town
+    const townMap = new Map<string, {
+      signals: typeof currentSignals;
+      categories: Record<string, number>;
+    }>();
+    
+    for (const signal of currentSignals) {
+      if (!townMap.has(signal.town)) {
+        townMap.set(signal.town, { signals: [], categories: {} });
+      }
+      const entry = townMap.get(signal.town)!;
+      entry.signals.push(signal);
+      entry.categories[signal.category] = (entry.categories[signal.category] || 0) + 1;
+    }
+    
+    // Build trend map using prior period
+    const priorTownCounts = new Map<string, number>();
+    for (const signal of olderSignals) {
+      priorTownCounts.set(signal.town, (priorTownCounts.get(signal.town) || 0) + 1);
+    }
+    
+    // Find dominant category across all signals
+    const globalCategories: Record<string, number> = {};
+    for (const signal of currentSignals) {
+      globalCategories[signal.category] = (globalCategories[signal.category] || 0) + 1;
+    }
+    const dominantTopic = Object.entries(globalCategories).sort((a, b) => b[1] - a[1])[0]?.[0] || "none";
+    
+    const towns = Array.from(townMap.entries()).map(([town, data]) => {
+      const volume_24h = data.signals.length;
+      const priorCount = priorTownCounts.get(town) || 0;
+      const trend = volume_24h > priorCount * 1.1 ? "up" : volume_24h < priorCount * 0.9 ? "down" : "flat";
+      
+      const avgUrgency = data.signals.length > 0
+        ? data.signals.reduce((sum, s) => sum + s.urgency, 0) / data.signals.length
+        : 0;
+      
+      const score = Math.min(1.0,
+        (data.categories["outage"] || 0) * 0.10 +
+        (data.categories["intent"] || 0) * 0.05 +
+        (data.categories["billing"] || 0) * 0.02 +
+        avgUrgency * 0.30
+      );
+      
+      const topKeywords = data.signals
+        .flatMap(s => (s.keywords as string[]) || [])
+        .reduce((acc, k) => {
+          acc[k] = (acc[k] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>);
+      
+      return {
+        town,
+        score,
+        volume_24h,
+        trend,
+        top_keywords: Object.entries(topKeywords).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k]) => k),
+        posts: data.signals.slice(0, 5).map(s => ({
+          id: s.id,
+          source: s.source,
+          town: s.town,
+          text: s.text,
+          timestamp: s.timestamp,
+          category: s.category as "outage" | "billing" | "intent" | "general",
+          urgency: s.urgency,
+        })),
+      };
+    }).sort((a, b) => b.score - a.score);
+    
+    res.json({
+      updatedAt: new Date().toISOString(),
+      dominantTopic,
+      towns,
+    });
+  } catch (error) {
+    console.error("Error fetching social overview:", error);
+    res.status(500).json({ error: "Failed to fetch social overview" });
+  }
+});
+```
+
+## TASK 2: FIX THE SOCIAL PAGE (client/src/pages/social.tsx)
+
+Replace the three hardcoded stat cards at the top with real computed values:
+
+1. "High Urgency Towns" card: count `data?.towns.filter(t => t.score > 0.7).length` — already correct, keep it
+2. "24h Mention Volume" card: use `data?.towns.reduce((acc, t) => acc + t.volume_24h, 0) ?? 0` — already correct
+3. Replace hardcoded subtitle "Clinton, Westborough spiking" with: 
+   `{data?.towns.slice(0,2).map(t=>t.town).join(', ')} spiking`
+4. Replace hardcoded "+12% from yesterday" with a real trend indicator:
+   Show "trending up" if more than half the top towns have trend==="up"
+5. Replace hardcoded "Dominant Topic: Billing" card title with: 
+   `{data?.dominantTopic ? data.dominantTopic.charAt(0).toUpperCase() + data.dominantTopic.slice(1) : 'None'}`
+
+Also update the SocialSignalsResponse type to add `dominantTopic: string`.
+
+## TASK 3: CREATE server/scrapers/nextdoor.ts — NEXTDOOR OUTAGE MAP SCRAPER
+
+Create a new scraper that hits Nextdoor's public outage map API. Nextdoor aggregates neighbor-reported outages into a public map. 
+```typescript
+// server/scrapers/nextdoor.ts
+import { storage } from "../storage";
+import type { InsertSocialSignal } from "@shared/schema";
+
+// Target MA towns with their approximate lat/lng centers
+const MA_TARGETS = [
+  { town: "CLINTON", lat: 42.4167, lng: -71.6823 },
+  { town: "WESTBOROUGH", lat: 42.2695, lng: -71.6162 },
+  { town: "WORCESTER", lat: 42.2626, lng: -71.8023 },
+  { town: "LEOMINSTER", lat: 42.5251, lng: -71.7598 },
+  { town: "FITCHBURG", lat: 42.5834, lng: -71.8031 },
+  { town: "GARDNER", lat: 42.5751, lng: -71.9981 },
+  { town: "AUBURN", lat: 42.1945, lng: -71.8356 },
+  { town: "FRAMINGHAM", lat: 42.2793, lng: -71.4162 },
+  { town: "MARLBOROUGH", lat: 42.3459, lng: -71.5523 },
+  { town: "SHREWSBURY", lat: 42.2956, lng: -71.7151 },
+];
+
+interface NextdoorOutageArea {
+  id: string;
+  title: string;
+  description?: string;
+  location?: { lat: number; lng: number };
+  created_at?: string;
+  utility?: string;
+  type?: string;
+}
+
+export class NextdoorOutageScraper {
+  
+  async scrapeOutageMap(): Promise<number> {
+    let stored = 0;
+    
+    for (const target of MA_TARGETS) {
+      try {
+        // Try Nextdoor's public outage endpoint (unauthenticated)
+        // Nextdoor exposes aggregated outage data via their public API
+        const url = `https://nextdoor.com/api/v1/outages/?lat=${target.lat}&lng=${target.lng}&radius=10`;
+        
+        const response = await fetch(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (compatible; OutageMonitor/1.0)',
+            'Accept': 'application/json',
+            'Referer': 'https://nextdoor.com/',
+          },
+        });
+        
+        if (!response.ok) {
+          // Try alternate endpoint format
+          const altUrl = `https://nextdoor.com/public_agency_outages/api/v1/list/?lat=${target.lat}&lng=${target.lng}`;
+          const altResponse = await fetch(altUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' }
+          });
+          
+          if (!altResponse.ok) {
+            console.log(`Nextdoor outage map: no data for ${target.town} (${altResponse.status})`);
+            continue;
+          }
+          
+          const altData = await altResponse.json();
+          stored += await this.processOutageData(altData, target.town);
+          continue;
+        }
+        
+        const data = await response.json();
+        stored += await this.processOutageData(data, target.town);
+        
+        // Polite delay between requests
+        await new Promise(r => setTimeout(r, 500));
+        
+      } catch (error) {
+        console.error(`Nextdoor scraper error for ${target.town}:`, error);
+      }
+    }
+    
+    return stored;
+  }
+  
+  private async processOutageData(data: any, town: string): Promise<number> {
+    let stored = 0;
+    const outages: NextdoorOutageArea[] = Array.isArray(data) ? data : (data?.results || data?.outages || []);
+    
+    for (const outage of outages) {
+      try {
+        const signal: InsertSocialSignal = {
+          source: "Nextdoor Outage Map",
+          town,
+          text: `${outage.title || 'Power outage reported'}${outage.description ? ': ' + outage.description : ''} (via Nextdoor)`,
+          category: "outage",
+          urgency: 0.8, // Outage map reports are high urgency
+          keywords: ["power out", "outage", "nextdoor"],
+          timestamp: outage.created_at ? new Date(outage.created_at) : new Date(),
+        };
+        
+        await storage.createSocialSignal(signal);
+        stored++;
+      } catch (error) {
+        console.error("Error storing Nextdoor signal:", error);
+      }
+    }
+    
+    if (stored > 0) {
+      console.log(`Nextdoor: Stored ${stored} outage signals for ${town}`);
+    }
+    
+    return stored;
+  }
+  
+  async scrapeAndStore(): Promise<{ stored: number; source: string }> {
+    console.log("Starting Nextdoor outage map scrape...");
+    const stored = await this.scrapeOutageMap();
+    console.log(`Nextdoor scrape complete: ${stored} signals stored`);
+    return { stored, source: "nextdoor_outage_map" };
+  }
+}
+
+export const nextdoorScraper = new NextdoorOutageScraper();
+```
+
+## TASK 4: CREATE server/scrapers/facebook.ts — FACEBOOK PUBLIC PAGE SCRAPER
+
+Use Playwright to scrape public Facebook community pages for outage/billing/solar keywords. Install Playwright: `npm install playwright` and run `npx playwright install chromium --with-deps`.
+```typescript
+// server/scrapers/facebook.ts
+import { storage } from "../storage";
+import type { InsertSocialSignal } from "@shared/schema";
+
+// Public Facebook pages/groups to monitor — these are town community pages
+// Only target PUBLIC pages, not private groups
+const FACEBOOK_TARGETS = [
+  { url: "https://www.facebook.com/groups/clintonmaresidents", town: "CLINTON" },
+  { url: "https://www.facebook.com/groups/westboroughma", town: "WESTBOROUGH" },
+  { url: "https://www.facebook.com/groups/worcestermacommunity", town: "WORCESTER" },
+  { url: "https://www.facebook.com/groups/leominster.ma.residents", town: "LEOMINSTER" },
+  { url: "https://www.facebook.com/groups/gardnerma", town: "GARDNER" },
+  // Add more public groups here
+];
+
+const OUTAGE_KEYWORDS = ["power out", "no power", "outage", "lights out", "electricity out", "blackout", "lost power", "without power"];
+const BILLING_KEYWORDS = ["electric bill", "delivery charge", "rate increase", "bill doubled", "high bill", "electricity cost"];
+const SOLAR_KEYWORDS = ["solar", "solar panel", "solar quote", "renewable energy", "rooftop solar", "battery backup", "powerwall"];
+
+interface ScrapedPost {
+  text: string;
+  timestamp: Date;
+  url: string;
+}
+
+export class FacebookScraper {
+  private playwright: any = null;
+  
+  private async getPlaywright() {
+    if (!this.playwright) {
+      try {
+        this.playwright = await import('playwright');
+      } catch {
+        console.log("Playwright not installed. Run: npm install playwright && npx playwright install chromium --with-deps");
+        return null;
+      }
+    }
+    return this.playwright;
+  }
+  
+  async scrapePublicPage(pageUrl: string, town: string): Promise<ScrapedPost[]> {
+    const pw = await this.getPlaywright();
+    if (!pw) return [];
+    
+    const posts: ScrapedPost[] = [];
+    let browser;
+    
+    try {
+      browser = await pw.chromium.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+      });
+      
+      const context = await browser.newContext({
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        viewport: { width: 1280, height: 720 },
+      });
+      
+      const page = await context.newPage();
+      
+      // Navigate to the public page
+      await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      
+      // Wait for posts to load
+      await page.waitForTimeout(3000);
+      
+      // Extract post text from the page
+      // Facebook's post structure: data-testid="post_message" or role="article"
+      const postElements = await page.$$('[data-testid="post_message"], [role="article"]');
+      
+      for (const el of postElements.slice(0, 10)) { // Limit to 10 most recent
+        try {
+          const text = await el.innerText();
+          if (text && text.length > 20) {
+            posts.push({
+              text: text.substring(0, 500), // Truncate
+              timestamp: new Date(), // Facebook doesn't easily expose timestamps without login
+              url: pageUrl,
+            });
+          }
+        } catch {}
+      }
+      
+      // Also try the more reliable selector
+      if (posts.length === 0) {
+        const textElements = await page.$$('.userContent, div[data-ad-preview="message"]');
+        for (const el of textElements.slice(0, 10)) {
+          const text = await el.innerText().catch(() => "");
+          if (text && text.length > 20) {
+            posts.push({ text: text.substring(0, 500), timestamp: new Date(), url: pageUrl });
+          }
+        }
+      }
+      
+    } catch (error) {
+      console.error(`Facebook scrape error for ${town}:`, error);
+    } finally {
+      if (browser) await browser.close().catch(() => {});
+    }
+    
+    return posts;
+  }
+  
+  classifyPost(text: string): { category: string; urgency: number; keywords: string[] } {
+    const lower = text.toLowerCase();
+    const found: string[] = [];
+    let category = "general";
+    let urgency = 0.1;
+    
+    for (const kw of OUTAGE_KEYWORDS) {
+      if (lower.includes(kw)) { found.push(kw); category = "outage"; urgency = Math.max(urgency, 0.8); }
+    }
+    for (const kw of BILLING_KEYWORDS) {
+      if (lower.includes(kw)) { found.push(kw); if (category === "general") category = "billing"; urgency = Math.max(urgency, 0.4); }
+    }
+    for (const kw of SOLAR_KEYWORDS) {
+      if (lower.includes(kw)) { found.push(kw); if (category === "general") category = "solar"; urgency = Math.max(urgency, 0.5); }
+    }
+    
+    if (lower.includes("urgent") || lower.includes("emergency")) urgency = 1.0;
+    
+    return { 
+      category: category === "solar" ? "intent" : category, 
+      urgency, 
+      keywords: found 
+    };
+  }
+  
+  async scrapeAndStore(): Promise<{ processed: number; stored: number; source: string }> {
+    let processed = 0;
+    let stored = 0;
+    
+    console.log("Starting Facebook public page scrape...");
+    
+    for (const target of FACEBOOK_TARGETS) {
+      const posts = await this.scrapePublicPage(target.url, target.town);
+      
+      for (const post of posts) {
+        processed++;
+        const analysis = this.classifyPost(post.text);
+        
+        if (analysis.category !== "general" && analysis.urgency > 0.1) {
+          try {
+            const signal: InsertSocialSignal = {
+              source: `Facebook/${target.url.split('/').pop()}`,
+              town: target.town,
+              text: post.text,
+              category: analysis.category as any,
+              urgency: analysis.urgency,
+              keywords: analysis.keywords,
+              timestamp: post.timestamp,
+            };
+            
+            await storage.createSocialSignal(signal);
+            stored++;
+          } catch (error) {
+            console.error("Error storing Facebook signal:", error);
+          }
+        }
+      }
+      
+      // Polite delay between pages
+      await new Promise(r => setTimeout(r, 2000));
+    }
+    
+    console.log(`Facebook scrape complete: ${stored}/${processed} signals stored`);
+    return { processed, stored, source: "facebook_public" };
+  }
+}
+
+export const facebookScraper = new FacebookScraper();
+```
+
+## TASK 5: WIRE UP THE NEW SCRAPERS IN routes.ts
+
+Add these new admin endpoints in server/routes.ts:
+```typescript
+// Add to existing /api/admin routes section
+
+app.post("/api/admin/scrape/nextdoor", async (req, res) => {
+  try {
+    const { nextdoorScraper } = await import("./scrapers/nextdoor");
+    const result = await nextdoorScraper.scrapeAndStore();
+    res.json({ success: true, ...result });
+  } catch (error) {
+    console.error("Nextdoor scrape error:", error);
+    res.status(500).json({ error: "Failed to scrape Nextdoor" });
+  }
+});
+
+app.post("/api/admin/scrape/facebook", async (req, res) => {
+  try {
+    const { facebookScraper } = await import("./scrapers/facebook");
+    const result = await facebookScraper.scrapeAndStore();
+    res.json({ success: true, ...result });
+  } catch (error) {
+    console.error("Facebook scrape error:", error);
+    res.status(500).json({ error: "Failed to scrape Facebook" });
+  }
+});
+
+app.post("/api/admin/scrape/all-social", async (req, res) => {
+  try {
+    const { nextdoorScraper } = await import("./scrapers/nextdoor");
+    const { facebookScraper } = await import("./scrapers/facebook");
+    
+    const [twitterResult, nextdoorResult, facebookResult] = await Promise.allSettled([
+      socialScraper.scrapeAndStore(),
+      nextdoorScraper.scrapeAndStore(),
+      facebookScraper.scrapeAndStore(),
+    ]);
+    
+    res.json({
+      success: true,
+      twitter: twitterResult.status === "fulfilled" ? twitterResult.value : { error: (twitterResult as any).reason?.message },
+      nextdoor: nextdoorResult.status === "fulfilled" ? nextdoorResult.value : { error: (nextdoorResult as any).reason?.message },
+      facebook: facebookResult.status === "fulfilled" ? facebookResult.value : { error: (facebookResult as any).reason?.message },
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to run social scrapes" });
+  }
+});
+```
+
+## TASK 6: ADD SCRAPER BUTTONS TO ADMIN PAGE
+
+In client/src/pages/admin.tsx, add three new buttons to the scraper controls section:
+1. "Scrape Nextdoor" → POST /api/admin/scrape/nextdoor
+2. "Scrape Facebook" → POST /api/admin/scrape/facebook  
+3. "Run All Social" → POST /api/admin/scrape/all-social
+
+Show a toast notification with the result count after each scrape.
+
+## TASK 7: INSTALL PLAYWRIGHT
+
+Run these commands in the Replit shell:
+```bash
+npm install playwright
+npx playwright install chromium --with-deps
+```
+
+## TASK 8: ADD A SCRAPE SCHEDULER IN server/index.ts
+
+After app startup, add a scheduler to auto-run social scrapes:
+```typescript
+// After server starts, run social scrapes on a schedule
+// Run once on startup, then every 30 minutes
+async function runSocialScrapes() {
+  try {
+    const { nextdoorScraper } = await import("./scrapers/nextdoor");
+    await socialScraper.scrapeAndStore();
+    await nextdoorScraper.scrapeAndStore();
+    // Facebook scraper is slower/heavier, run less frequently
+  } catch (error) {
+    console.error("Scheduled social scrape error:", error);
+  }
+}
+
+// Run on startup after 30 seconds
+setTimeout(runSocialScrapes, 30000);
+
+// Run every 30 minutes  
+setInterval(runSocialScrapes, 30 * 60 * 1000);
+```
+
+## IMPORTANT NOTES FOR REPLIT AGENT
+
+1. Run `npm install playwright` and `npx playwright install chromium --with-deps` in the shell
+2. The database schema already has the `social_signals` table — no migration needed
+3. Preserve all existing functionality — don't delete or break any working routes
+4. The Facebook scraper targets PUBLIC pages only — this is important
+5. After making changes, verify the `/api/social` endpoint returns data by hitting it in the browser
+6. If Playwright install fails due to Replit constraints, implement the Facebook scraper as a simple fetch-based RSS scraper targeting public Facebook page RSS feeds at: `https://www.facebook.com/feeds/page.php?id=PAGE_ID&format=rss20`
+7. The Nextdoor endpoint URL may need adjustment — if the API returns 404, try: `https://nextdoor.com/agency_outages/` or log the response to find the correct endpoint pattern
+8. All scraped data goes into the existing `social_signals` table and will automatically appear in the rankings and social page once the /api/social bug is fixed
+
+## VERIFICATION CHECKLIST
+After completing all tasks, verify:
+- [ ] GET /api/social returns JSON with { updatedAt, towns: [...], dominantTopic: "..." }
+- [ ] Social page at /social loads without error state
+- [ ] Social page shows real data (not hardcoded "Clinton, Westborough spiking")
+- [ ] Admin page has "Scrape Nextdoor", "Scrape Facebook", "Run All Social" buttons
+- [ ] Clicking "Scrape Nextdoor" runs the scraper and shows result count
+- [ ] Clicking "Run All Social" aggregates all sources
+- [ ] Rankings at /rankings still work correctly (don't break existing functionality)
