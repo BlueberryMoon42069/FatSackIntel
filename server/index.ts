@@ -3,6 +3,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { autoPopulateOnStartup } from "./utils/auto-populate";
+import { socialScraper } from "./scrapers/social";
 
 const app = express();
 const httpServer = createServer(app);
@@ -66,6 +67,19 @@ app.use((req, res, next) => {
   autoPopulateOnStartup().catch(error => {
     console.error("[auto-populate] Failed to auto-populate:", error);
   });
+
+  async function runSocialScrapes() {
+    try {
+      const { nextdoorScraper } = await import("./scrapers/nextdoor");
+      await socialScraper.scrapeAndStore();
+      await nextdoorScraper.scrapeAndStore();
+    } catch (error) {
+      console.error("Scheduled social scrape error:", error);
+    }
+  }
+
+  setTimeout(runSocialScrapes, 30000);
+  setInterval(runSocialScrapes, 30 * 60 * 1000);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

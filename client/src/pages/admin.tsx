@@ -317,10 +317,54 @@ export default function AdminPage() {
                     className="justify-start"
                   >
                     <MessageSquare className="h-4 w-4 mr-2" />
-                    {actionLoading === "Scrape Social" ? "Scraping..." : "Scrape Social Signals"}
+                    {actionLoading === "Scrape Social" ? "Scraping..." : "Scrape Twitter/X Signals"}
                   </Button>
                   <p className="text-xs text-muted-foreground">
-                    Monitors public Facebook groups for outage mentions, billing complaints, and solar interest in Worcester County
+                    Monitors Twitter/X for outage mentions, billing complaints, and solar interest
+                  </p>
+
+                  <Button
+                    variant="outline"
+                    onClick={() => triggerAction("/api/admin/scrape/nextdoor", "Scrape Nextdoor")}
+                    disabled={actionLoading === "Scrape Nextdoor"}
+                    data-testid="button-scrape-nextdoor"
+                    className="justify-start"
+                  >
+                    <MessageSquare className="h-4 w-4 mr-2" />
+                    {actionLoading === "Scrape Nextdoor" ? "Scraping..." : "Scrape Nextdoor"}
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    Fetches neighbor-reported outages from Nextdoor's public outage map for MA towns
+                  </p>
+
+                  <Button
+                    variant="outline"
+                    onClick={() => triggerAction("/api/admin/scrape/facebook", "Scrape Facebook")}
+                    disabled={actionLoading === "Scrape Facebook"}
+                    data-testid="button-scrape-facebook"
+                    className="justify-start"
+                  >
+                    <MessageSquare className="h-4 w-4 mr-2" />
+                    {actionLoading === "Scrape Facebook" ? "Scraping..." : "Scrape Facebook"}
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    Scrapes public Facebook community pages for outage/billing/solar keywords
+                  </p>
+
+                  <Separator className="my-1" />
+
+                  <Button
+                    variant="default"
+                    onClick={() => triggerAction("/api/admin/scrape/all-social", "Run All Social")}
+                    disabled={actionLoading === "Run All Social"}
+                    data-testid="button-scrape-all-social"
+                    className="justify-start"
+                  >
+                    <TrendingUp className="h-4 w-4 mr-2" />
+                    {actionLoading === "Run All Social" ? "Scraping All..." : "Run All Social Scrapers"}
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    Runs Twitter, Nextdoor, and Facebook scrapers simultaneously
                   </p>
                 </CardContent>
               </Card>

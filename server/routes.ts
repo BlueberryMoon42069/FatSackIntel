@@ -248,6 +248,95 @@ export async function registerRoutes(
 
   // ===== SOCIAL SIGNALS API =====
 
+  app.get("/api/social", async (req, res) => {
+    try {
+      const { hours = "24" } = req.query;
+      const hoursNum = parseInt(hours as string);
+      
+      const currentSignals = await storage.getRecentSocialSignals(hoursNum);
+      const priorSignals = await storage.getRecentSocialSignals(hoursNum * 2);
+      const olderSignals = priorSignals.filter(s => {
+        const age = Date.now() - new Date(s.timestamp).getTime();
+        return age > hoursNum * 3600 * 1000;
+      });
+      
+      const townMap = new Map<string, {
+        signals: typeof currentSignals;
+        categories: Record<string, number>;
+      }>();
+      
+      for (const signal of currentSignals) {
+        if (!townMap.has(signal.town)) {
+          townMap.set(signal.town, { signals: [], categories: {} });
+        }
+        const entry = townMap.get(signal.town)!;
+        entry.signals.push(signal);
+        entry.categories[signal.category] = (entry.categories[signal.category] || 0) + 1;
+      }
+      
+      const priorTownCounts = new Map<string, number>();
+      for (const signal of olderSignals) {
+        priorTownCounts.set(signal.town, (priorTownCounts.get(signal.town) || 0) + 1);
+      }
+      
+      const globalCategories: Record<string, number> = {};
+      for (const signal of currentSignals) {
+        globalCategories[signal.category] = (globalCategories[signal.category] || 0) + 1;
+      }
+      const dominantTopic = Object.entries(globalCategories).sort((a, b) => b[1] - a[1])[0]?.[0] || "none";
+      
+      const towns = Array.from(townMap.entries()).map(([town, data]) => {
+        const volume_24h = data.signals.length;
+        const priorCount = priorTownCounts.get(town) || 0;
+        const trend = volume_24h > priorCount * 1.1 ? "up" : volume_24h < priorCount * 0.9 ? "down" : "flat";
+        
+        const avgUrgency = data.signals.length > 0
+          ? data.signals.reduce((sum, s) => sum + s.urgency, 0) / data.signals.length
+          : 0;
+        
+        const score = Math.min(1.0,
+          (data.categories["outage"] || 0) * 0.10 +
+          (data.categories["intent"] || 0) * 0.05 +
+          (data.categories["billing"] || 0) * 0.02 +
+          avgUrgency * 0.30
+        );
+        
+        const topKeywords = data.signals
+          .flatMap(s => (s.keywords as string[]) || [])
+          .reduce((acc, k) => {
+            acc[k] = (acc[k] || 0) + 1;
+            return acc;
+          }, {} as Record<string, number>);
+        
+        return {
+          town,
+          score,
+          volume_24h,
+          trend,
+          top_keywords: Object.entries(topKeywords).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k]) => k),
+          posts: data.signals.slice(0, 5).map(s => ({
+            id: s.id,
+            source: s.source,
+            town: s.town,
+            text: s.text,
+            timestamp: s.timestamp,
+            category: s.category as "outage" | "billing" | "intent" | "general",
+            urgency: s.urgency,
+          })),
+        };
+      }).sort((a, b) => b.score - a.score);
+      
+      res.json({
+        updatedAt: new Date().toISOString(),
+        dominantTopic,
+        towns,
+      });
+    } catch (error) {
+      console.error("Error fetching social overview:", error);
+      res.status(500).json({ error: "Failed to fetch social overview" });
+    }
+  });
+
   app.get("/api/social/town/:town", async (req, res) => {
     try {
       const { town } = req.params;
@@ -666,6 +755,50 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error triggering social scrape:", error);
       res.status(500).json({ error: "Failed to trigger social scrape" });
+    }
+  });
+
+  app.post("/api/admin/scrape/nextdoor", async (req, res) => {
+    try {
+      const { nextdoorScraper } = await import("./scrapers/nextdoor");
+      const result = await nextdoorScraper.scrapeAndStore();
+      res.json({ success: true, ...result });
+    } catch (error) {
+      console.error("Nextdoor scrape error:", error);
+      res.status(500).json({ error: "Failed to scrape Nextdoor" });
+    }
+  });
+
+  app.post("/api/admin/scrape/facebook", async (req, res) => {
+    try {
+      const { facebookScraper } = await import("./scrapers/facebook");
+      const result = await facebookScraper.scrapeAndStore();
+      res.json({ success: true, ...result });
+    } catch (error) {
+      console.error("Facebook scrape error:", error);
+      res.status(500).json({ error: "Failed to scrape Facebook" });
+    }
+  });
+
+  app.post("/api/admin/scrape/all-social", async (req, res) => {
+    try {
+      const { nextdoorScraper } = await import("./scrapers/nextdoor");
+      const { facebookScraper } = await import("./scrapers/facebook");
+      
+      const [twitterResult, nextdoorResult, facebookResult] = await Promise.allSettled([
+        socialScraper.scrapeAndStore(),
+        nextdoorScraper.scrapeAndStore(),
+        facebookScraper.scrapeAndStore(),
+      ]);
+      
+      res.json({
+        success: true,
+        twitter: twitterResult.status === "fulfilled" ? twitterResult.value : { error: (twitterResult as any).reason?.message },
+        nextdoor: nextdoorResult.status === "fulfilled" ? nextdoorResult.value : { error: (nextdoorResult as any).reason?.message },
+        facebook: facebookResult.status === "fulfilled" ? facebookResult.value : { error: (facebookResult as any).reason?.message },
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to run social scrapes" });
     }
   });
 

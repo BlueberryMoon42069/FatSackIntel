@@ -31,6 +31,7 @@ type SocialTownMetric = {
 
 type SocialSignalsResponse = {
   updatedAt: string;
+  dominantTopic: string;
   towns: SocialTownMetric[];
 };
 
@@ -80,7 +81,11 @@ export default function SocialPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{data?.towns.filter(t => t.score > 0.7).length ?? 0}</div>
-              <p className="text-xs text-muted-foreground mt-1">Clinton, Westborough spiking</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {data?.towns && data.towns.length > 0 
+                  ? `${data.towns.slice(0, 2).map(t => t.town).join(', ')} spiking`
+                  : 'No active signals'}
+              </p>
             </CardContent>
           </Card>
           <Card>
@@ -89,8 +94,18 @@ export default function SocialPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{data?.towns.reduce((acc, t) => acc + t.volume_24h, 0) ?? 0}</div>
-              <p className="text-xs text-muted-foreground mt-1 text-green-600 flex items-center gap-1">
-                <TrendingUp className="h-3 w-3" /> +12% from yesterday
+              <p className={`text-xs text-muted-foreground mt-1 flex items-center gap-1 ${
+                data?.towns && data.towns.filter(t => t.trend === "up").length > data.towns.length / 2 
+                  ? 'text-red-500' : 'text-green-600'
+              }`}>
+                <TrendingUp className="h-3 w-3" />
+                {data?.towns && data.towns.length > 0
+                  ? data.towns.filter(t => t.trend === "up").length > data.towns.length / 2
+                    ? 'Trending up overall'
+                    : data.towns.filter(t => t.trend === "down").length > data.towns.length / 2
+                      ? 'Trending down overall'
+                      : 'Stable overall'
+                  : 'No trend data'}
               </p>
             </CardContent>
           </Card>
@@ -99,8 +114,14 @@ export default function SocialPage() {
               <CardTitle className="text-sm font-medium text-muted-foreground">Dominant Topic</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">Billing</div>
-              <p className="text-xs text-muted-foreground mt-1">"Delivery charge" keywords</p>
+              <div className="text-2xl font-bold">
+                {data?.dominantTopic ? data.dominantTopic.charAt(0).toUpperCase() + data.dominantTopic.slice(1) : 'None'}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {data?.dominantTopic && data.dominantTopic !== 'none' 
+                  ? `Most mentioned category` 
+                  : 'No signals yet'}
+              </p>
             </CardContent>
           </Card>
         </div>
