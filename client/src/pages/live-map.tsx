@@ -57,6 +57,28 @@ function MapEvents(props: { onMoveEnd: (bbox: BBox) => void }) {
   return null;
 }
 
+function formatHoursOut(hours: number): string {
+  if (hours < 1) return `${Math.round(hours * 60)}m`;
+  if (hours < 24) return `${hours.toFixed(1)}h`;
+  const days = Math.floor(hours / 24);
+  const remaining = hours % 24;
+  return `${days}d ${remaining.toFixed(0)}h`;
+}
+
+function severityLabel(score: number): { text: string; color: string; bgColor: string } {
+  if (score >= 0.7) return { text: "Critical", color: "text-red-700", bgColor: "bg-red-100 border-red-300" };
+  if (score >= 0.5) return { text: "High", color: "text-orange-700", bgColor: "bg-orange-100 border-orange-300" };
+  if (score >= 0.3) return { text: "Medium", color: "text-yellow-700", bgColor: "bg-yellow-100 border-yellow-300" };
+  return { text: "Low", color: "text-green-700", bgColor: "bg-green-100 border-green-300" };
+}
+
+function severityColor(score: number): string {
+  if (score >= 0.7) return "#dc2626";
+  if (score >= 0.5) return "#ea580c";
+  if (score >= 0.3) return "#d97706";
+  return "#2563eb";
+}
+
 export default function LiveMapPage() {
   const [providers, setProviders] = useState<ProviderKey[]>(["mema", "eversource", "national_grid", "unitil"]);
   const [bbox, setBbox] = useState<BBox>({
@@ -146,20 +168,45 @@ export default function LiveMapPage() {
         provider: f.properties?.provider,
         customers: f.properties?.customers ?? 0,
         status: f.properties?.status,
-        location: f.properties?.location || "Unknown Location",
+        location: f.properties?.location || "Unknown Area",
+        town: f.properties?.town || null,
+        hoursOut: f.properties?.hoursOut ?? 0,
+        severity: f.properties?.severity ?? 0,
         knockScore: f.properties?.knockScore,
         outageScore: f.properties?.outageScore,
         socialScore: f.properties?.socialScore,
         solarScore: f.properties?.solarScore,
       }))
-      .sort((a, b) => (b.customers || 0) - (a.customers || 0));
+      .sort((a, b) => (b.severity || 0) - (a.severity || 0));
   }, [state.data]);
 
   const featureCount = state.data?.features?.features?.length ?? 0;
+  const totalAffected = useMemo(() => outageList.reduce((sum, o) => sum + o.customers, 0), [outageList]);
+
+  // Historical outages for active towns
+  const activeTowns = useMemo(() => {
+    const towns = new Set<string>();
+    outageList.forEach(o => { if (o.town) towns.add(o.town); });
+    return Array.from(towns);
+  }, [outageList]);
+
+  const [historicalData, setHistoricalData] = useState<Record<string, { totalOutages: number; totalCustomersAffected: number; avgDurationMinutes: number }>>({});
+
+  useEffect(() => {
+    setHistoricalData({});
+    if (activeTowns.length === 0) return;
+    const results: Record<string, any> = {};
+    Promise.allSettled(
+      activeTowns.map(town =>
+        apiFetch<any>(`/api/historical/summary?town=${encodeURIComponent(town)}`, { timeoutMs: 5000 })
+          .then(data => { if (data.totalOutages > 0) results[town] = data; })
+      )
+    ).then(() => setHistoricalData(results));
+  }, [activeTowns.join(",")]);
 
   return (
-    <AppShell subtitle="Street-level geometry (when available) with provider toggles and live bbox querying.">
-      <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
+    <AppShell subtitle="Real-time outage monitoring with severity scoring and historical context.">
+      <div className="grid gap-4 lg:grid-cols-[380px_1fr]">
         <div className="grid gap-4 h-[70vh] overflow-y-auto pr-2">
           <Card>
             <CardHeader className="pb-3">
@@ -208,14 +255,21 @@ export default function LiveMapPage() {
                   {state.loading ? <Spinner data-testid="spinner-live" /> : null}
                 </div>
                 <div className="rounded-lg border bg-card p-3 grid gap-1">
-                  <div className="text-sm font-medium" data-testid="text-live-count">
-                    {featureCount.toLocaleString()} features
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-medium" data-testid="text-live-count">
+                      {featureCount} active outage{featureCount !== 1 ? "s" : ""}
+                    </div>
+                    {totalAffected > 0 && (
+                      <div className="text-xs text-muted-foreground" data-testid="text-live-total-affected">
+                        {totalAffected.toLocaleString()} total affected
+                      </div>
+                    )}
                   </div>
                   <div className="text-xs text-muted-foreground" data-testid="text-live-updated">
                     Updated: {state.updatedAt ? new Date(state.updatedAt).toLocaleString() : "—"}
                   </div>
                   {state.error ? (
-                    <div className="text-xs text-muted-foreground" data-testid="text-live-error">
+                    <div className="text-xs text-destructive" data-testid="text-live-error">
                       {state.error}
                     </div>
                   ) : null}
@@ -223,6 +277,7 @@ export default function LiveMapPage() {
 
                 <Button
                   variant="secondary"
+                  size="sm"
                   onClick={() => {
                     cacheRef.current.clear();
                     setState((s) => ({ ...s }));
@@ -242,29 +297,73 @@ export default function LiveMapPage() {
               </CardHeader>
               <CardContent className="grid gap-2 p-0">
                 <div className="max-h-[300px] overflow-y-auto px-4 pb-4">
-                  {outageList.map((outage) => (
-                    <div 
-                      key={outage.id}
-                      className={`p-2 rounded-md border mb-2 cursor-pointer transition-colors ${selectedOutageId === outage.id ? 'bg-primary/10 border-primary' : 'hover:bg-muted'}`}
-                      onClick={() => {
-                        setSelectedOutageId(outage.id);
-                        setDrawerOpen(true);
-                      }}
-                      data-testid={`outage-item-${outage.id}`}
-                    >
-                      <div className="flex justify-between items-start">
-                        <div className="font-medium text-sm truncate max-w-[180px]">{outage.location}</div>
-                        <Badge variant={outage.customers > 100 ? "destructive" : "secondary"} className="text-[10px] px-1.5 py-0">
-                          {outage.customers.toLocaleString()} Affected
-                        </Badge>
+                  {outageList.map((outage) => {
+                    const sev = severityLabel(outage.severity);
+                    return (
+                      <div 
+                        key={outage.id}
+                        className={`p-2.5 rounded-md border mb-2 cursor-pointer transition-colors ${selectedOutageId === outage.id ? 'bg-primary/10 border-primary' : 'hover:bg-muted'}`}
+                        onClick={() => {
+                          setSelectedOutageId(outage.id);
+                          setDrawerOpen(true);
+                        }}
+                        data-testid={`outage-item-${outage.id}`}
+                      >
+                        <div className="flex justify-between items-start gap-2">
+                          <div className="font-medium text-sm truncate" data-testid={`outage-location-${outage.id}`}>
+                            {outage.location}
+                          </div>
+                          <Badge variant="outline" className={`text-[10px] px-1.5 py-0 shrink-0 ${sev.bgColor} ${sev.color}`}>
+                            {sev.text}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-xs font-medium uppercase" data-testid={`outage-provider-${outage.id}`}>
+                            {outage.provider}
+                          </span>
+                          <span className="text-xs text-muted-foreground" data-testid={`outage-affected-${outage.id}`}>
+                            {outage.customers.toLocaleString()} affected
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between mt-1">
+                          <span className="text-[10px] text-muted-foreground" data-testid={`outage-hours-${outage.id}`}>
+                            Out for {formatHoursOut(outage.hoursOut)}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">
+                            Score: {(outage.severity * 100).toFixed(0)}%
+                          </span>
+                        </div>
                       </div>
-                      <div className="flex justify-between items-center mt-1">
-                        <span className="text-[10px] text-muted-foreground uppercase">{outage.provider}</span>
-                        <span className="text-[10px] text-muted-foreground">{outage.status}</span>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {activeTowns.length > 0 && Object.keys(historicalData).length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-semibold">Historical Context</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-2 px-4 pb-4">
+                <div className="text-xs text-muted-foreground mb-1">
+                  Past DPU records for towns with active outages
+                </div>
+                {activeTowns.filter(t => historicalData[t]).map(town => {
+                  const h = historicalData[town];
+                  return (
+                    <div key={town} className="rounded-lg border p-2.5" data-testid={`historical-town-${town}`}>
+                      <div className="font-medium text-sm">{town}</div>
+                      <div className="grid grid-cols-3 gap-1 mt-1 text-[10px] text-muted-foreground">
+                        <div>{h.totalOutages} incidents</div>
+                        <div>{h.totalCustomersAffected.toLocaleString()} affected</div>
+                        <div>Avg {Math.round(h.avgDurationMinutes)}m</div>
+                      </div>
+                      <Badge variant="outline" className="mt-1 text-[9px]">DPU</Badge>
+                    </div>
+                  );
+                })}
               </CardContent>
             </Card>
           )}
@@ -283,7 +382,12 @@ export default function LiveMapPage() {
           ) : null}
         </div>
 
-        <Card className="overflow-hidden">
+        <Card className="overflow-hidden relative">
+          <style>{`
+            .leaflet-popup { z-index: 1000 !important; }
+            .leaflet-popup-content-wrapper { border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+            .leaflet-popup-content { margin: 0 !important; }
+          `}</style>
           <div className="h-[70vh] min-h-[520px] w-full" data-testid="map-live">
             <MapContainer center={[42.35, -71.06] as any} zoom={8 as any} className="h-full w-full">
               <TileLayer
@@ -300,57 +404,68 @@ export default function LiveMapPage() {
                         setSelectedOutageId(feature.properties?.id);
                         setDrawerOpen(true);
                       });
-                      if (feature.properties?.customers) {
+                      if (feature.properties) {
                         const props = feature.properties;
+                        const sev = props.severity ?? 0;
+                        const sevPct = (sev * 100).toFixed(0);
                         const knock = props.knockScore ? (props.knockScore * 100).toFixed(0) : 'N/A';
-                        const outage = props.outageScore ? (props.outageScore * 100).toFixed(0) : 'N/A';
-                        const social = props.socialScore ? (props.socialScore * 100).toFixed(0) : 'N/A';
-                        const solar = props.solarScore ? (props.solarScore * 100).toFixed(0) : 'N/A';
+                        const hoursStr = props.hoursOut != null ? formatHoursOut(props.hoursOut) : '—';
+                        
+                        const sevColor = sev >= 0.7 ? '#dc2626' : sev >= 0.5 ? '#ea580c' : sev >= 0.3 ? '#d97706' : '#16a34a';
+                        const sevText = sev >= 0.7 ? 'Critical' : sev >= 0.5 ? 'High' : sev >= 0.3 ? 'Medium' : 'Low';
                         
                         layer.bindPopup(`
-                          <div class="text-xs p-2 min-w-[200px]">
-                            <div class="font-bold text-sm mb-1 border-b pb-1">${props.location || 'Outage Location'}</div>
-                            <div class="flex justify-between mb-1">
-                              <span>Severity:</span>
-                              <span class="font-bold ${props.customers > 100 ? 'text-red-600' : 'text-orange-600'}">
-                                ${props.customers.toLocaleString()} Affected
-                              </span>
+                          <div style="padding: 10px; min-width: 220px; font-family: system-ui, sans-serif;">
+                            <div style="font-weight: 700; font-size: 14px; margin-bottom: 6px; border-bottom: 1px solid #e5e7eb; padding-bottom: 6px;">
+                              ${props.location || 'Unknown Area'}
                             </div>
-                            <div class="flex justify-between mb-1">
-                              <span>Provider:</span>
-                              <span class="font-medium uppercase">${props.provider}</span>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 12px;">
+                              <span style="color: #6b7280;">Provider</span>
+                              <span style="font-weight: 600; text-transform: uppercase;">${props.provider}</span>
                             </div>
-                            <div class="mt-2 pt-2 border-t font-semibold text-primary">Knock Score: ${knock}%</div>
-                            <div class="grid grid-cols-3 gap-1 mt-1 text-[10px] text-muted-foreground">
-                              <div>Risk: ${outage}%</div>
-                              <div>Social: ${social}%</div>
-                              <div>Solar: ${solar}%</div>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 12px;">
+                              <span style="color: #6b7280;">Affected</span>
+                              <span style="font-weight: 600;">${(props.customers ?? 0).toLocaleString()}</span>
                             </div>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 12px;">
+                              <span style="color: #6b7280;">Duration</span>
+                              <span style="font-weight: 600;">${hoursStr}</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 12px;">
+                              <span style="color: #6b7280;">Severity</span>
+                              <span style="font-weight: 700; color: ${sevColor};">${sevText} (${sevPct}%)</span>
+                            </div>
+                            <div style="border-top: 1px solid #e5e7eb; padding-top: 6px; font-size: 13px; font-weight: 600; color: #2563eb;">
+                              Knock Score: ${knock}%
+                            </div>
+                            <div style="font-size: 10px; color: #9ca3af; margin-top: 4px;">Click for full details</div>
                           </div>
-                        `);
+                        `, { maxWidth: 280, className: 'outage-popup' });
                       }
                     },
                     style: (f: any) => {
-                      const provider = f?.properties?.provider as string | undefined;
-                      const color = provider === "mema" ? "#2563eb" : "#0ea5e9";
+                      const sev = f?.properties?.severity ?? 0;
+                      const color = severityColor(sev);
                       return {
                         color,
                         weight: 2,
                         fillColor: color,
-                        fillOpacity: 0.15,
+                        fillOpacity: 0.2,
                       };
                     },
                     pointToLayer: (feature: any, latlng: any) => {
-                      const provider = feature?.properties?.provider as string | undefined;
-                      const color = provider === "mema" ? "#2563eb" : "#0ea5e9";
+                      const sev = feature?.properties?.severity ?? 0;
+                      const customers = feature?.properties?.customers ?? 0;
+                      const color = severityColor(sev);
+                      const radius = Math.max(6, Math.min(14, 6 + Math.log10(1 + customers) * 3));
                       const L = (window as any).L;
                       if (L?.circleMarker) {
                         return L.circleMarker(latlng, {
-                          radius: 7,
+                          radius,
                           color,
                           weight: 2,
                           fillColor: color,
-                          fillOpacity: 0.3,
+                          fillOpacity: 0.4,
                         });
                       }
                       return (window as any).L.marker(latlng);

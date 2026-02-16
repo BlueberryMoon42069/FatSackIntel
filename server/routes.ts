@@ -59,6 +59,16 @@ const townCentroids: Record<string, [number, number]> = {
   "PAXTON": [-71.9412, 42.3012],
   "BROOKFIELD": [-72.1012, 42.2112],
   "WEST BROOKFIELD": [-72.1623, 42.2334],
+  "WEBSTER": [-71.8801, 42.0501],
+  "DUDLEY": [-71.9312, 42.0512],
+  "OXFORD": [-71.8645, 42.1168],
+  "DOUGLAS": [-71.7412, 42.0512],
+  "UXBRIDGE": [-71.6323, 42.0712],
+  "NORTHBRIDGE": [-71.6523, 42.1512],
+  "SUTTON": [-71.7612, 42.1312],
+  "MILLBURY": [-71.7612, 42.1945],
+  "GRAFTON": [-71.6856, 42.2068],
+  "SHREWSBURY": [-71.7134, 42.2956],
   "LEOMINSTER": [-71.7598, 42.5251],
   "FITCHBURG": [-71.8031, 42.5834],
   "GARDNER": [-71.9981, 42.5751],
@@ -136,22 +146,76 @@ export async function registerRoutes(
   // ===== OUTAGES API =====
   
   // Main outages endpoint for live map - returns GeoJSON FeatureCollection
+  // Helper: find nearest town from coordinates
+  function findNearestTown(lng: number, lat: number): string | null {
+    let best: string | null = null;
+    let bestDist = Infinity;
+    for (const [town, [tLng, tLat]] of Object.entries(townCentroids)) {
+      if (town !== town.toUpperCase()) continue; // skip lowercase duplicates
+      const d = Math.sqrt((lng - tLng) ** 2 + (lat - tLat) ** 2);
+      if (d < bestDist) { bestDist = d; best = town; }
+    }
+    return bestDist < 0.15 ? best : null; // ~10 mile threshold
+  }
+
+  // Helper: calculate severity score
+  function calculateSeverityScore(customers: number, hoursOut: number, reportedAt: Date): number {
+    // Time factor: longer outages are more severe (log scale)
+    const timeFactor = Math.min(1.0, Math.log2(1 + hoursOut) / 6); // maxes at ~64 hours
+
+    // Customer factor: more customers = more severe (log scale)
+    const customerFactor = Math.min(1.0, Math.log10(1 + customers) / 4); // maxes at ~10000
+
+    // Peak hour factor: outages during peak usage are more impactful
+    const hour = reportedAt.getHours();
+    const isPeakMorning = hour >= 6 && hour <= 9;
+    const isPeakEvening = hour >= 16 && hour <= 21;
+    const peakFactor = isPeakMorning ? 0.7 : isPeakEvening ? 1.0 : 0.3;
+
+    // Weighted combination
+    const score = (
+      timeFactor * 0.30 +
+      customerFactor * 0.40 +
+      peakFactor * 0.20 +
+      0.10 // base severity for any active outage
+    );
+
+    return Math.min(1.0, Math.max(0, score));
+  }
+
   app.get("/api/outages", async (req, res) => {
     try {
       const outages = await storage.getActiveOutages();
-      const locations = await storage.getTopLocations(1000); // Get scored locations to match with outages
+      const locations = await storage.getTopLocations(1000);
+      const now = Date.now();
       
-      // Convert database outages to GeoJSON FeatureCollection
       const features = outages.map(outage => {
-        // Try to find a matching location score for this provider/area
-        // In a real scenario, we'd use H3 or spatial join. 
-        // For now, we'll approximate or use default scoring components.
         const outageGeom = outage.geometry as any;
         const locationMatch = locations.find(l => 
           outageGeom.type === 'Point' && 
           Math.abs(l.lat - outageGeom.coordinates[1]) < 0.1 && 
           Math.abs(l.lon - outageGeom.coordinates[0]) < 0.1
         );
+
+        // Resolve town from coordinates
+        let town: string | null = null;
+        if (outageGeom.type === 'Point' && outageGeom.coordinates) {
+          town = findNearestTown(outageGeom.coordinates[0], outageGeom.coordinates[1]);
+        }
+
+        // Calculate hours out
+        const reportedAt = outage.reportedAt ? new Date(outage.reportedAt) : new Date();
+        const hoursOut = Math.max(0, (now - reportedAt.getTime()) / (1000 * 60 * 60));
+
+        // Calculate severity score
+        const severity = calculateSeverityScore(
+          outage.customersAffected ?? 0,
+          hoursOut,
+          reportedAt
+        );
+
+        // Build display location
+        const displayLocation = town || "Unknown Area";
 
         return {
           type: "Feature" as const,
@@ -162,8 +226,11 @@ export async function registerRoutes(
             status: outage.status,
             confidence: outage.confidence,
             reportedAt: outage.reportedAt,
-            location: (outage as any).location || "Outage Location",
-            knockScore: locationMatch?.finalScore ?? 0.6, // Default fallback
+            location: displayLocation,
+            town: town,
+            hoursOut: Math.round(hoursOut * 10) / 10,
+            severity,
+            knockScore: locationMatch?.finalScore ?? 0.6,
             outageScore: locationMatch?.outageScore ?? 0.7,
             socialScore: locationMatch?.socialScore ?? 0.3,
             solarScore: locationMatch?.solarScore ?? 0.65,
@@ -1082,6 +1149,97 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching historical heatmap:", error);
       res.status(500).json({ error: "Failed to fetch heatmap data" });
+    }
+  });
+
+  // ===== LAYER API =====
+
+  // Gas coverage layer - MA municipalities with natural gas service
+  app.get("/api/layers/gas", async (_req, res) => {
+    try {
+      const gasTowns: Record<string, [number, number][]> = {
+        "Boston": [[-71.12, 42.40], [-71.12, 42.32], [-71.00, 42.32], [-71.00, 42.40]],
+        "Worcester": [[-71.87, 42.30], [-71.87, 42.22], [-71.74, 42.22], [-71.74, 42.30]],
+        "Springfield": [[-72.65, 42.14], [-72.65, 42.06], [-72.53, 42.06], [-72.53, 42.14]],
+        "Cambridge": [[-71.16, 42.40], [-71.16, 42.35], [-71.07, 42.35], [-71.07, 42.40]],
+        "Lowell": [[-71.37, 42.66], [-71.37, 42.61], [-71.27, 42.61], [-71.27, 42.66]],
+        "Brockton": [[-71.07, 42.11], [-71.07, 42.06], [-70.97, 42.06], [-70.97, 42.11]],
+        "New Bedford": [[-70.98, 41.67], [-70.98, 41.61], [-70.89, 41.61], [-70.89, 41.67]],
+        "Fall River": [[-71.20, 41.73], [-71.20, 41.68], [-71.11, 41.68], [-71.11, 41.73]],
+        "Newton": [[-71.26, 42.37], [-71.26, 42.31], [-71.16, 42.31], [-71.16, 42.37]],
+        "Framingham": [[-71.47, 42.31], [-71.47, 42.25], [-71.37, 42.25], [-71.37, 42.31]],
+        "Haverhill": [[-71.13, 42.80], [-71.13, 42.75], [-71.03, 42.75], [-71.03, 42.80]],
+        "Lawrence": [[-71.22, 42.73], [-71.22, 42.68], [-71.12, 42.68], [-71.12, 42.73]],
+        "Somerville": [[-71.12, 42.40], [-71.12, 42.37], [-71.07, 42.37], [-71.07, 42.40]],
+        "Brookline": [[-71.17, 42.35], [-71.17, 42.31], [-71.10, 42.31], [-71.10, 42.35]],
+        "Plymouth": [[-70.72, 41.99], [-70.72, 41.93], [-70.62, 41.93], [-70.62, 41.99]],
+        "Salem": [[-70.94, 42.54], [-70.94, 42.50], [-70.86, 42.50], [-70.86, 42.54]],
+        "Taunton": [[-71.14, 41.93], [-71.14, 41.87], [-71.04, 41.87], [-71.04, 41.93]],
+        "Pittsfield": [[-73.31, 42.48], [-73.31, 42.42], [-73.21, 42.42], [-73.21, 42.48]],
+        "Holyoke": [[-72.67, 42.23], [-72.67, 42.18], [-72.57, 42.18], [-72.57, 42.23]],
+        "Chicopee": [[-72.66, 42.18], [-72.66, 42.12], [-72.56, 42.12], [-72.56, 42.18]],
+      };
+
+      const features = Object.entries(gasTowns).map(([name, coords]) => ({
+        type: "Feature" as const,
+        properties: { name, has_gas: true, provider: "National Grid / Eversource" },
+        geometry: {
+          type: "Polygon" as const,
+          coordinates: [[...coords, coords[0]]],
+        },
+      }));
+
+      res.json({
+        updatedAt: new Date().toISOString(),
+        source: "sample" as const,
+        features: { type: "FeatureCollection", features },
+      });
+    } catch (error) {
+      console.error("Error fetching gas layer:", error);
+      res.status(500).json({ error: "Failed to fetch gas layer" });
+    }
+  });
+
+  // Electric heating share layer - towns with higher electric heat usage
+  app.get("/api/layers/heating", async (_req, res) => {
+    try {
+      const heatingTowns: { name: string; share: number; coords: [number, number][] }[] = [
+        { name: "Barnstable", share: 0.35, coords: [[-70.35, 41.73], [-70.35, 41.67], [-70.24, 41.67], [-70.24, 41.73]] },
+        { name: "Falmouth", share: 0.32, coords: [[-70.67, 41.58], [-70.67, 41.52], [-70.56, 41.52], [-70.56, 41.58]] },
+        { name: "Yarmouth", share: 0.30, coords: [[-70.28, 41.73], [-70.28, 41.68], [-70.18, 41.68], [-70.18, 41.73]] },
+        { name: "Nantucket", share: 0.42, coords: [[-70.12, 41.30], [-70.12, 41.24], [-70.02, 41.24], [-70.02, 41.30]] },
+        { name: "Martha's Vineyard", share: 0.38, coords: [[-70.65, 41.42], [-70.65, 41.36], [-70.52, 41.36], [-70.52, 41.42]] },
+        { name: "Provincetown", share: 0.33, coords: [[-70.20, 42.07], [-70.20, 42.03], [-70.14, 42.03], [-70.14, 42.07]] },
+        { name: "Chatham", share: 0.29, coords: [[-69.99, 41.70], [-69.99, 41.65], [-69.90, 41.65], [-69.90, 41.70]] },
+        { name: "Wellfleet", share: 0.27, coords: [[-70.00, 41.95], [-70.00, 41.90], [-69.93, 41.90], [-69.93, 41.95]] },
+        { name: "Truro", share: 0.28, coords: [[-70.08, 42.02], [-70.08, 41.97], [-70.01, 41.97], [-70.01, 42.02]] },
+        { name: "Brewster", share: 0.25, coords: [[-70.10, 41.78], [-70.10, 41.73], [-70.01, 41.73], [-70.01, 41.78]] },
+        { name: "Eastham", share: 0.26, coords: [[-69.99, 41.85], [-69.99, 41.80], [-69.93, 41.80], [-69.93, 41.85]] },
+        { name: "Orleans", share: 0.24, coords: [[-69.99, 41.81], [-69.99, 41.77], [-69.93, 41.77], [-69.93, 41.81]] },
+        { name: "Dennis", share: 0.23, coords: [[-70.18, 41.73], [-70.18, 41.69], [-70.10, 41.69], [-70.10, 41.73]] },
+        { name: "Harwich", share: 0.22, coords: [[-70.08, 41.70], [-70.08, 41.66], [-69.99, 41.66], [-69.99, 41.70]] },
+        { name: "Sandwich", share: 0.20, coords: [[-70.53, 41.78], [-70.53, 41.73], [-70.45, 41.73], [-70.45, 41.78]] },
+        { name: "Bourne", share: 0.19, coords: [[-70.62, 41.75], [-70.62, 41.70], [-70.55, 41.70], [-70.55, 41.75]] },
+        { name: "Mashpee", share: 0.21, coords: [[-70.51, 41.66], [-70.51, 41.61], [-70.44, 41.61], [-70.44, 41.66]] },
+      ];
+
+      const features = heatingTowns.map(t => ({
+        type: "Feature" as const,
+        properties: { name: t.name, electric_heat_share: t.share },
+        geometry: {
+          type: "Polygon" as const,
+          coordinates: [[...t.coords, t.coords[0]]],
+        },
+      }));
+
+      res.json({
+        updatedAt: new Date().toISOString(),
+        source: "sample" as const,
+        features: { type: "FeatureCollection", features },
+      });
+    } catch (error) {
+      console.error("Error fetching heating layer:", error);
+      res.status(500).json({ error: "Failed to fetch heating layer" });
     }
   });
 
