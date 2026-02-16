@@ -8,12 +8,10 @@ import {
   Layers,
   ListOrdered,
   Map,
-  FileText,
   Shield,
   Search,
   MessageSquare,
   History,
-  MapPin,
   Calculator,
 } from "lucide-react";
 
@@ -24,8 +22,6 @@ const nav = [
   { href: "/social", label: "Social Pulse", icon: MessageSquare, testId: "link-nav-social" },
   { href: "/lookup", label: "Lookup", icon: Search, testId: "link-nav-lookup" },
   { href: "/historical", label: "Historical", icon: History, testId: "link-nav-historical" },
-  { href: "/heatmap", label: "Heatmap", icon: MapPin, testId: "link-nav-heatmap" },
-  { href: "/documents", label: "Historical Directory", icon: FileText, testId: "link-nav-docs" },
   { href: "/layers", label: "Layers", icon: Layers, testId: "link-nav-layers" },
   { href: "/admin", label: "Admin", icon: Shield, testId: "link-nav-admin" },
 ];

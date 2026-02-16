@@ -12,11 +12,9 @@ import LiveMapPage from "@/pages/live-map";
 import RankingsPage from "@/pages/rankings";
 import LookupPage from "@/pages/lookup";
 import SocialPage from "@/pages/social";
-import DocumentsPage from "@/pages/documents";
 import LayersPage from "@/pages/layers";
 import AdminPage from "@/pages/admin";
 import HistoricalPage from "@/pages/historical";
-import HeatmapPage from "@/pages/heatmap";
 import CalculatorPage from "@/pages/calculator";
 
 function LoginPage() {
@@ -65,11 +63,9 @@ function Router() {
       <Route path="/rankings" component={RankingsPage} />
       <Route path="/social" component={SocialPage} />
       <Route path="/lookup" component={LookupPage} />
-      <Route path="/documents" component={DocumentsPage} />
       <Route path="/layers" component={LayersPage} />
       <Route path="/admin" component={AdminPage} />
       <Route path="/historical" component={HistoricalPage} />
-      <Route path="/heatmap" component={HeatmapPage} />
       <Route path="/calculator" component={CalculatorPage} />
       <Route component={NotFound} />
     </Switch>
