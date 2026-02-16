@@ -91,7 +91,8 @@ Preferred communication style: Simple, everyday language.
 - **MEMA**: Returns empty if no active emergencies (no mock fallback)
 
 ### Town Centroids
-- Expanded to 80+ MA towns including Boston Metro, Western MA, Cape Cod, North Shore regions
+- Expanded to 90+ MA towns including Boston Metro, Western MA, Cape Cod, North Shore, Worcester County regions
+- Includes Webster, Dudley, Oxford, Douglas, Uxbridge, Northbridge, Sutton, Millbury, Grafton, Shrewsbury
 - All in uppercase format to match DPU filing data
 
 ### Scoring Algorithm (Knock Score)
@@ -99,13 +100,22 @@ Preferred communication style: Simple, everyday language.
 - Social Signals: 30% weight (from real Twitter data only)
 - Solar Potential: 20% weight (MA average 0.65)
 
+### Severity Score (Live Outages) — Feb 16
+- Time Factor: 30% weight (log2 scale, maxes ~64hrs)
+- Customer Factor: 40% weight (log10 scale, maxes ~10,000)
+- Peak Hour Factor: 20% weight (evening peak=1.0, morning=0.7, off-peak=0.3)
+- Base: 10% for any active outage
+- Labels: Critical (>=0.7), High (>=0.5), Medium (>=0.3), Low (<0.3)
+
 ### Key API Endpoints
 - `GET /api/rankings` - Unified rankings with historical data source indicators
-- `GET /api/outages` - GeoJSON active outages for map display
+- `GET /api/outages` - GeoJSON active outages with town, severity, hoursOut, knockScore
 - `GET /api/historical` - Search historical outages with filters
 - `GET /api/historical/stats` - Summary stats (3,158 records, utilities, years)
 - `GET /api/historical/heatmap` - Town-level aggregations for map visualization
 - `GET /api/historical/summary` - Location-specific historical summary (town/street aggregations)
+- `GET /api/layers/gas` - Gas coverage GeoJSON polygons for MA municipalities
+- `GET /api/layers/heating` - Electric heat share GeoJSON for Cape Cod/Islands towns
 - `POST /api/admin/upload-historical` - Upload DPU Excel files
 - `GET /api/admin/status` - Data pipeline status counts
 
