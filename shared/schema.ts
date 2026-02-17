@@ -18,6 +18,7 @@ export const outages = pgTable("outages", {
 }, (table) => ({
   providerIdx: index("outages_provider_idx").on(table.provider),
   reportedAtIdx: index("outages_reported_at_idx").on(table.reportedAt),
+  statusReportedIdx: index("outages_status_reported_idx").on(table.status, table.reportedAt),
 }));
 
 export const insertOutageSchema = createInsertSchema(outages).omit({
@@ -66,6 +67,7 @@ export const socialSignals = pgTable("social_signals", {
   townIdx: index("social_town_idx").on(table.town),
   timestampIdx: index("social_timestamp_idx").on(table.timestamp),
   categoryIdx: index("social_category_idx").on(table.category),
+  townTimestampIdx: index("social_town_timestamp_idx").on(table.town, table.timestamp),
 }));
 
 export const insertSocialSignalSchema = createInsertSchema(socialSignals).omit({
@@ -172,6 +174,8 @@ export const historicalOutages = pgTable("historical_outages", {
   utilityIdx: index("historical_utility_idx").on(table.utility),
   incidentStartIdx: index("historical_incident_start_idx").on(table.incidentStart),
   streetIdx: index("historical_street_idx").on(table.street),
+  utilityYearIdx: index("historical_utility_year_idx").on(table.utility, table.year),
+  townYearIdx: index("historical_town_year_idx").on(table.town, table.year),
 }));
 
 export const insertHistoricalOutageSchema = createInsertSchema(historicalOutages).omit({
