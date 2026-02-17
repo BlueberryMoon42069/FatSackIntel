@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run check)",
+      "Bash(npm run build)",
+      "Bash(npm run dev)",
+      "Bash(npm run db:push)",
+      "Bash(npm install *)",
+      "Bash(npm audit *)",
+      "Bash(git *)",
+      "Bash(npx drizzle-kit *)",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(rm -rf /*)",
+      "Bash(DROP DATABASE *)",
+      "Bash(* --force *)",
+      "Read(.env)"
+    ]
+  },
+  "env": {
+    "NODE_ENV": "development"
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/typecheck-changed.sh \"$TOOL_INPUT\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
