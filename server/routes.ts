@@ -130,10 +130,49 @@ const townCentroids: Record<string, [number, number]> = {
   "LAWRENCE": [-71.1634, 42.7070],
   "LOWELL": [-71.3162, 42.6334],
   "CHELMSFORD": [-71.3673, 42.5998],
-  // Legacy lowercase versions for backwards compat
-  "Clinton": [-71.6823, 42.4167],
-  "Westborough": [-71.6162, 42.2695],
-  "Worcester": [-71.8023, 42.2626],
+  // Merrimack Valley
+  "ANDOVER": [-71.1373, 42.6584],
+  "METHUEN": [-71.1901, 42.7262],
+  "DRACUT": [-71.3012, 42.6734],
+  "TEWKSBURY": [-71.2345, 42.6101],
+  "BILLERICA": [-71.2689, 42.5584],
+  "WILMINGTON": [-71.1734, 42.5467],
+  // South Shore / Southeast
+  "QUINCY": [-71.0023, 42.2529],
+  "WEYMOUTH": [-70.9395, 42.2209],
+  "HINGHAM": [-70.8895, 42.2417],
+  "SCITUATE": [-70.7284, 42.1995],
+  "NORWELL": [-70.7923, 42.1612],
+  "HANOVER": [-70.8123, 42.1134],
+  "ROCKLAND": [-70.9184, 42.1301],
+  "ABINGTON": [-70.9456, 42.1051],
+  "WHITMAN": [-70.9345, 42.0834],
+  "BRIDGEWATER": [-70.9701, 41.9901],
+  "MIDDLEBOROUGH": [-70.9112, 41.8934],
+  "WAREHAM": [-70.7256, 41.7612],
+  "KINGSTON": [-70.7234, 41.9834],
+  "DUXBURY": [-70.6789, 42.0417],
+  // Blackstone Valley
+  "MILFORD": [-71.5162, 42.1395],
+  "MENDON": [-71.5523, 42.1012],
+  "BELLINGHAM": [-71.4745, 42.0867],
+  "FRANKLIN": [-71.3956, 42.0834],
+  "MEDWAY": [-71.3989, 42.1417],
+  "HOPKINTON": [-71.5223, 42.2289],
+  // Connecticut River Valley
+  "WESTFIELD": [-72.7490, 42.1251],
+  "AGAWAM": [-72.6512, 42.0701],
+  "EASTHAMPTON": [-72.6690, 42.2668],
+  "SOUTH HADLEY": [-72.5745, 42.2584],
+  "LUDLOW": [-72.4756, 42.1601],
+  "PALMER": [-72.3289, 42.1584],
+  "WARE": [-72.2389, 42.2601],
+  // Berkshires
+  "NORTH ADAMS": [-73.1089, 42.7001],
+  "GREAT BARRINGTON": [-73.3623, 42.1962],
+  "LEE": [-73.2489, 42.3062],
+  "LENOX": [-73.2856, 42.3562],
+  "WILLIAMSTOWN": [-73.2034, 42.7123],
 };
 
 export async function registerRoutes(
@@ -151,7 +190,6 @@ export async function registerRoutes(
     let best: string | null = null;
     let bestDist = Infinity;
     for (const [town, [tLng, tLat]] of Object.entries(townCentroids)) {
-      if (town !== town.toUpperCase()) continue; // skip lowercase duplicates
       const d = Math.sqrt((lng - tLng) ** 2 + (lat - tLat) ** 2);
       if (d < bestDist) { bestDist = d; best = town; }
     }
@@ -197,10 +235,15 @@ export async function registerRoutes(
           Math.abs(l.lon - outageGeom.coordinates[0]) < 0.1
         );
 
-        // Resolve town from coordinates
+        // Resolve town from coordinates (supports Point and Polygon centroid)
         let town: string | null = null;
         if (outageGeom.type === 'Point' && outageGeom.coordinates) {
           town = findNearestTown(outageGeom.coordinates[0], outageGeom.coordinates[1]);
+        } else if (outageGeom.type === 'Polygon' && outageGeom.coordinates?.[0]) {
+          const ring = outageGeom.coordinates[0];
+          const avgLng = ring.reduce((s: number, c: number[]) => s + c[0], 0) / ring.length;
+          const avgLat = ring.reduce((s: number, c: number[]) => s + c[1], 0) / ring.length;
+          town = findNearestTown(avgLng, avgLat);
         }
 
         // Calculate hours out
@@ -632,14 +675,17 @@ export async function registerRoutes(
       }
 
       // Build unified rankings
-      const rankings = [];
+      const rankings: any[] = [];
+      const addedNames = new Set<string>();
 
       // Add scored locations
       for (const loc of locations) {
+        const name = loc.h3Cell;
+        addedNames.add(name.toUpperCase());
         rankings.push({
           id: loc.id,
           type: "h3_cell",
-          name: loc.h3Cell,
+          name,
           lat: loc.lat,
           lon: loc.lon,
           knockScore: loc.finalScore,
@@ -653,13 +699,10 @@ export async function registerRoutes(
       }
 
       // Add towns with historical outage data (PRIMARY DATA SOURCE - real DPU filings)
-      // This is the most important data source for "Knock Now" scoring
       const maxIncidents = Math.max(...Array.from(townHistorical.values()).map(t => t.totalIncidents), 1);
-      
+
       for (const [townKey, historical] of Array.from(townHistorical)) {
-        // Check if already added via locations
-        const existing = rankings.find(r => r.name?.toUpperCase() === townKey);
-        if (existing) continue;
+        if (addedNames.has(townKey)) continue;
         
         // Calculate outage score based on incident frequency and severity
         // Higher incidents = higher score (more sales opportunity)
@@ -681,6 +724,7 @@ export async function registerRoutes(
         const knockScore = outageScore * 0.5 + socialScore * 0.3 + solarScore * 0.2;
         
         const townCoords = townCentroids[townKey];
+        addedNames.add(townKey);
         rankings.push({
           id: `town-${townKey}`,
           type: "town",
@@ -710,8 +754,7 @@ export async function registerRoutes(
 
       // Add towns with social signals only (not in historical data)
       for (const [townName, social] of Array.from(townSocial)) {
-        const existing = rankings.find(r => r.name === townName || r.name === townName.toUpperCase());
-        if (!existing) {
+        if (!addedNames.has(townName.toUpperCase())) {
           // Calculate knock score from social signals only
           const socialScore = Math.min(1.0, (
             social.outageCount * 0.1 +
@@ -721,6 +764,7 @@ export async function registerRoutes(
           ));
           
           const townCoords = townCentroids[townName] || townCentroids[townName.toUpperCase()];
+          addedNames.add(townName.toUpperCase());
           rankings.push({
             id: `town-${townName}`,
             type: "town",
@@ -741,33 +785,31 @@ export async function registerRoutes(
         }
       }
 
-      // Add territories from reliability data (legacy support)
+      // Add territories from reliability data
       for (const [territory, data] of Array.from(territoryScores)) {
-        const existing = rankings.find(r => r.name === territory);
-        if (!existing) {
-          // Higher SAIDI = higher outage risk score
-          const outageScore = Math.min(1.0, data.avgSAIDI / 250);
-          
-          const territoryCoords = territoryCentroids[territory];
-          rankings.push({
-            id: `territory-${territory}`,
-            type: "territory",
-            name: territory,
-            provider: data.provider,
-            lat: territoryCoords ? territoryCoords[1] : null,
-            lon: territoryCoords ? territoryCoords[0] : null,
-            knockScore: outageScore,
-            outageScore,
-            socialScore: 0,
-            solarScore: 0.6,
-            reliabilityData: {
-              avgSAIDI: data.avgSAIDI,
-              avgSAIFI: data.avgSAIFI,
-              avgCAIDI: data.avgCAIDI,
-              yearsAnalyzed: data.count,
-            },
-          });
-        }
+        if (addedNames.has(territory.toUpperCase())) continue;
+
+        const outageScore = Math.min(1.0, data.avgSAIDI / 250);
+        const territoryCoords = territoryCentroids[territory];
+        addedNames.add(territory.toUpperCase());
+        rankings.push({
+          id: `territory-${territory}`,
+          type: "territory",
+          name: territory,
+          provider: data.provider,
+          lat: territoryCoords ? territoryCoords[1] : null,
+          lon: territoryCoords ? territoryCoords[0] : null,
+          knockScore: outageScore,
+          outageScore,
+          socialScore: 0,
+          solarScore: 0.6,
+          reliabilityData: {
+            avgSAIDI: data.avgSAIDI,
+            avgSAIFI: data.avgSAIFI,
+            avgCAIDI: data.avgCAIDI,
+            yearsAnalyzed: data.count,
+          },
+        });
       }
 
       // Apply filters
@@ -867,14 +909,6 @@ export async function registerRoutes(
     } catch (error) {
       res.status(500).json({ error: "Failed to run social scrapes" });
     }
-  });
-
-  // Legacy endpoint - now uses file upload instead
-  app.post("/api/admin/import/historical", async (req, res) => {
-    res.status(400).json({ 
-      error: "This endpoint is deprecated. Please use POST /api/admin/upload/historical with file upload instead.",
-      instructions: "Upload DPU Outage_Accident_Report Excel files (.xlsx) via the Admin page."
-    });
   });
 
   app.post("/api/admin/score/batch", async (req, res) => {
@@ -1059,21 +1093,30 @@ export async function registerRoutes(
   app.get("/api/historical", async (req, res) => {
     try {
       const { town, street, utility, year, startDate, endDate, limit, offset } = req.query;
-      
-      const outages = await storage.getHistoricalOutages({
+
+      const filters = {
         town: town as string,
         street: street as string,
         utility: utility as string,
         year: year ? parseInt(year as string) : undefined,
         startDate: startDate ? new Date(startDate as string) : undefined,
         endDate: endDate ? new Date(endDate as string) : undefined,
-        limit: limit ? parseInt(limit as string) : 100,
-        offset: offset ? parseInt(offset as string) : 0,
-      });
+      };
+
+      const [outages, total] = await Promise.all([
+        storage.getHistoricalOutages({
+          ...filters,
+          limit: limit ? parseInt(limit as string) : 100,
+          offset: offset ? parseInt(offset as string) : 0,
+        }),
+        storage.getHistoricalOutageCount(filters),
+      ]);
 
       res.json({
         updatedAt: new Date().toISOString(),
-        total: outages.length,
+        total,
+        limit: limit ? parseInt(limit as string) : 100,
+        offset: offset ? parseInt(offset as string) : 0,
         outages,
       });
     } catch (error) {

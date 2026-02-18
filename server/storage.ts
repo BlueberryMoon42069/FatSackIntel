@@ -189,18 +189,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Historical outages
-  async getHistoricalOutages(filters?: {
+  private buildHistoricalConditions(filters?: {
     town?: string;
     street?: string;
     utility?: string;
     year?: number;
     startDate?: Date;
     endDate?: Date;
-    limit?: number;
-    offset?: number;
-  }): Promise<HistoricalOutage[]> {
+  }) {
     const conditions = [];
-    
+
     if (filters?.town) {
       conditions.push(sql`LOWER(${schema.historicalOutages.town}) LIKE LOWER(${'%' + filters.town + '%'})`);
     }
@@ -219,18 +217,48 @@ export class DatabaseStorage implements IStorage {
     if (filters?.endDate) {
       conditions.push(sql`${schema.historicalOutages.incidentStart} <= ${filters.endDate}`);
     }
-    
-    let query = db.select()
-      .from(schema.historicalOutages)
+
+    return conditions;
+  }
+
+  async getHistoricalOutages(filters?: {
+    town?: string;
+    street?: string;
+    utility?: string;
+    year?: number;
+    startDate?: Date;
+    endDate?: Date;
+    limit?: number;
+    offset?: number;
+  }): Promise<HistoricalOutage[]> {
+    const conditions = this.buildHistoricalConditions(filters);
+
+    const baseQuery = conditions.length > 0
+      ? db.select().from(schema.historicalOutages).where(and(...conditions))
+      : db.select().from(schema.historicalOutages);
+
+    return await (baseQuery as any)
       .orderBy(desc(schema.historicalOutages.incidentStart))
       .limit(filters?.limit || 1000)
       .offset(filters?.offset || 0);
-    
-    if (conditions.length > 0) {
-      query = query.where(and(...conditions)) as any;
-    }
-    
-    return await query;
+  }
+
+  async getHistoricalOutageCount(filters?: {
+    town?: string;
+    street?: string;
+    utility?: string;
+    year?: number;
+    startDate?: Date;
+    endDate?: Date;
+  }): Promise<number> {
+    const conditions = this.buildHistoricalConditions(filters);
+
+    const baseQuery = conditions.length > 0
+      ? db.select({ count: sql<number>`count(*)` }).from(schema.historicalOutages).where(and(...conditions))
+      : db.select({ count: sql<number>`count(*)` }).from(schema.historicalOutages);
+
+    const result = await baseQuery;
+    return Number(result[0]?.count || 0);
   }
 
   async createHistoricalOutage(outage: InsertHistoricalOutage): Promise<HistoricalOutage> {
