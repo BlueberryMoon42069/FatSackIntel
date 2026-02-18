@@ -13,3 +13,5 @@ vite.config.ts.*
 # Claude Code local files (personal, not shared)
 CLAUDE.local.md
 .claude/settings.local.json
+
+everything-claude-code/

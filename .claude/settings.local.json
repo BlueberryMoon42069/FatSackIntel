@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs basename:*)",
+      "Bash(find:*)",
+      "Bash(xargs ls:*)",
+      "Bash(bash install.sh typescript)",
+      "WebFetch(domain:github.com)",
+      "Bash(grep:*)",
+      "Bash(npm run db:push:*)",
+      "Bash(npm run check:*)",
+      "Bash(git add:*)",
+      "Bash(git rm:*)",
+      "Bash(GIT_EDITOR=true git rebase:*)",
+      "Bash(GIT_SEQUENCE_EDITOR=true git rebase:*)",
+      "Bash(echo:*)",
+      "Bash(npx knip:*)",
+      "Bash(npx depcheck:*)"
+    ]
+  }
+}

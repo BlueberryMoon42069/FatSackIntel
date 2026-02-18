@@ -15,6 +15,10 @@ import type {
   InsertLocationScore,
   HistoricalOutage,
   InsertHistoricalOutage,
+  ScraperLog,
+  InsertScraperLog,
+  TownBoundary,
+  InsertTownBoundary,
 } from "@shared/schema";
 
 const pool = new Pool({
@@ -48,6 +52,17 @@ export interface IStorage {
   getTopLocations(limit?: number): Promise<LocationScore[]>;
   getLocationScore(h3Cell: string): Promise<LocationScore | undefined>;
   createOrUpdateLocationScore(score: InsertLocationScore): Promise<LocationScore>;
+
+  // Scraper logs
+  getScraperLogs(scraper?: string): Promise<ScraperLog[]>;
+  createScraperLog(log: InsertScraperLog): Promise<ScraperLog>;
+
+  // Town boundaries
+  getTownBoundary(town: string): Promise<TownBoundary | undefined>;
+  createOrUpdateTownBoundary(boundary: InsertTownBoundary): Promise<TownBoundary>;
+
+  // Utility queries
+  getDistinctTowns(): Promise<string[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -323,6 +338,50 @@ export class DatabaseStorage implements IStorage {
       ))
       .returning();
     return result.length;
+  }
+
+  // Scraper logs
+  async getScraperLogs(scraper?: string): Promise<ScraperLog[]> {
+    let query = db.select().from(schema.scraperLogs);
+    if (scraper) {
+      query = query.where(eq(schema.scraperLogs.scraper, scraper)) as any;
+    }
+    return await query.orderBy(desc(schema.scraperLogs.lastRunAt)).limit(100);
+  }
+
+  async createScraperLog(log: InsertScraperLog): Promise<ScraperLog> {
+    const result = await db.insert(schema.scraperLogs).values(log as any).returning();
+    return result[0];
+  }
+
+  // Town boundaries
+  async getTownBoundary(town: string): Promise<TownBoundary | undefined> {
+    const result = await db.select()
+      .from(schema.townBoundaries)
+      .where(eq(schema.townBoundaries.town, town.toUpperCase()))
+      .limit(1);
+    return result[0];
+  }
+
+  async createOrUpdateTownBoundary(boundary: InsertTownBoundary): Promise<TownBoundary> {
+    const existing = await this.getTownBoundary(boundary.town);
+    if (existing) {
+      const result = await db.update(schema.townBoundaries)
+        .set({ ...boundary, updatedAt: new Date() })
+        .where(eq(schema.townBoundaries.id, existing.id))
+        .returning();
+      return result[0];
+    }
+    const result = await db.insert(schema.townBoundaries).values(boundary).returning();
+    return result[0];
+  }
+
+  // Utility queries
+  async getDistinctTowns(): Promise<string[]> {
+    const result = await db.selectDistinct({ town: schema.historicalOutages.town })
+      .from(schema.historicalOutages)
+      .orderBy(schema.historicalOutages.town);
+    return result.map(r => r.town).filter(Boolean) as string[];
   }
 }
 

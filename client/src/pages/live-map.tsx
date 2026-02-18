@@ -9,6 +9,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/EmptyState";
 import { OutageDetailDrawer } from "@/components/OutageDetailDrawer";
 import { apiFetch } from "@/lib/api";
+import { useOutagesWebSocket } from "@/hooks/use-outages-ws";
 import type { FeatureCollection, Geometry } from "geojson";
 
 import { MapContainer, TileLayer, GeoJSON, useMapEvents } from "react-leaflet";
@@ -157,6 +158,8 @@ export default function LiveMapPage() {
     return () => controller.abort();
   }, [url, debouncedBbox, debouncedProviders]);
 
+  const { connected: wsConnected } = useOutagesWebSocket();
+
   const [selectedOutageId, setSelectedOutageId] = useState<string | number | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -210,9 +213,19 @@ export default function LiveMapPage() {
         <div className="grid gap-4 h-[70vh] overflow-y-auto pr-2">
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base" data-testid="text-live-title">
-                Live Outage Map
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base" data-testid="text-live-title">
+                  Live Outage Map
+                </CardTitle>
+                <Badge
+                  variant="outline"
+                  className={wsConnected
+                    ? "bg-green-50 text-green-700 border-green-300"
+                    : "bg-yellow-50 text-yellow-700 border-yellow-300"}
+                >
+                  {wsConnected ? "Live" : "Polling"}
+                </Badge>
+              </div>
             </CardHeader>
             <CardContent className="grid gap-4">
               <div className="grid gap-2">

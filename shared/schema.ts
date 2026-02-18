@@ -185,3 +185,46 @@ export const insertHistoricalOutageSchema = createInsertSchema(historicalOutages
 
 export type InsertHistoricalOutage = z.infer<typeof insertHistoricalOutageSchema>;
 export type HistoricalOutage = typeof historicalOutages.$inferSelect;
+
+// Scraper run logs — one row per scraper execution
+export const scraperLogs = pgTable("scraper_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  scraper: varchar("scraper", { length: 50 }).notNull(),
+  status: varchar("status", { length: 10 }).notNull().$type<"success" | "error" | "empty">(),
+  lastRunAt: timestamp("last_run_at").defaultNow().notNull(),
+  recordsFetched: integer("records_fetched").default(0),
+  errorMessage: text("error_message"),
+  durationMs: integer("duration_ms"),
+}, (table) => ({
+  scraperIdx: index("scraper_logs_scraper_idx").on(table.scraper),
+  lastRunAtIdx: index("scraper_logs_last_run_at_idx").on(table.lastRunAt),
+}));
+
+export const insertScraperLogSchema = createInsertSchema(scraperLogs).omit({
+  id: true,
+  lastRunAt: true,
+});
+
+export type InsertScraperLog = z.infer<typeof insertScraperLogSchema>;
+export type ScraperLog = typeof scraperLogs.$inferSelect;
+
+// MA town boundary metadata (populated when GeoJSON data is available)
+export const townBoundaries = pgTable("town_boundaries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  town: varchar("town", { length: 100 }).notNull().unique(),
+  geojson: json("geojson"),
+  population: integer("population"),
+  areaSqMiles: real("area_sq_miles"),
+  county: varchar("county", { length: 100 }),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  townIdx: index("town_boundaries_town_idx").on(table.town),
+}));
+
+export const insertTownBoundarySchema = createInsertSchema(townBoundaries).omit({
+  id: true,
+  updatedAt: true,
+});
+
+export type InsertTownBoundary = z.infer<typeof insertTownBoundarySchema>;
+export type TownBoundary = typeof townBoundaries.$inferSelect;

@@ -27,6 +27,17 @@
     "NODE_ENV": "development"
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "grep -l 'source.*mock\\|mock_data\\|apiWithFallback.*fallback' \"$CLAUDE_TOOL_INPUT_FILE_PATH\" 2>/dev/null && echo 'WARNING: This file may introduce mock data. SackFinder constraint: no mock data displayed to users.' || true"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit",
@@ -39,5 +50,8 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "everything-claude-code@everything-claude-code": true
   }
 }

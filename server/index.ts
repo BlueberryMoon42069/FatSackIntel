@@ -4,6 +4,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { autoPopulateOnStartup } from "./utils/auto-populate";
 import { socialScraper } from "./scrapers/social";
+import { initWebSocket } from "./utils/websocket";
 
 const app = express();
 const httpServer = createServer(app);
@@ -63,6 +64,9 @@ app.use((req, res, next) => {
 
 (async () => {
   await registerRoutes(httpServer, app);
+
+  // Initialize WebSocket server for real-time outage updates
+  initWebSocket(httpServer);
 
   autoPopulateOnStartup().catch(error => {
     console.error("[auto-populate] Failed to auto-populate:", error);

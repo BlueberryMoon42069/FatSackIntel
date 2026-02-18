@@ -7,6 +7,8 @@ import { socialScraper } from "./scrapers/social";
 import { solarCalculator } from "./utils/solar";
 import { scoringEngine } from "./utils/scoring";
 import { parseOutageReport } from "./utils/excel-parser";
+import { townCentroids, getTownCoords, findNearestTown as findNearestTownUtil, getAllTownNames } from "./utils/towns";
+import { getCache, setCache, TTL } from "./utils/cache";
 
 import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
 
@@ -41,140 +43,6 @@ const territoryCentroids: Record<string, [number, number]> = {
   "Boston Metro": [-71.05, 42.36],
 };
 
-// Massachusetts town centroids [lng, lat]
-// Expanded to cover all major towns from DPU filings
-const townCentroids: Record<string, [number, number]> = {
-  // Worcester County
-  "CLINTON": [-71.6823, 42.4167],
-  "WESTBOROUGH": [-71.6162, 42.2695],
-  "WORCESTER": [-71.8023, 42.2626],
-  "AUBURN": [-71.8356, 42.1945],
-  "SPENCER": [-71.9923, 42.2456],
-  "STERLING": [-71.7612, 42.4356],
-  "HOLDEN": [-71.8623, 42.3512],
-  "LEICESTER": [-71.9295, 42.3112],
-  "CHARLTON": [-72.0512, 42.1323],
-  "WARREN": [-72.1912, 42.2123],
-  "WESTMINSTER": [-71.9112, 42.5456],
-  "PAXTON": [-71.9412, 42.3012],
-  "BROOKFIELD": [-72.1012, 42.2112],
-  "WEST BROOKFIELD": [-72.1623, 42.2334],
-  "WEBSTER": [-71.8801, 42.0501],
-  "DUDLEY": [-71.9312, 42.0512],
-  "OXFORD": [-71.8645, 42.1168],
-  "DOUGLAS": [-71.7412, 42.0512],
-  "UXBRIDGE": [-71.6323, 42.0712],
-  "NORTHBRIDGE": [-71.6523, 42.1512],
-  "SUTTON": [-71.7612, 42.1312],
-  "MILLBURY": [-71.7612, 42.1945],
-  "GRAFTON": [-71.6856, 42.2068],
-  "SHREWSBURY": [-71.7134, 42.2956],
-  "LEOMINSTER": [-71.7598, 42.5251],
-  "FITCHBURG": [-71.8031, 42.5834],
-  "GARDNER": [-71.9981, 42.5751],
-  // Boston Metro
-  "BOSTON": [-71.0589, 42.3601],
-  "BOSTON DOWNTOWN": [-71.0589, 42.3601],
-  "CAMBRIDGE": [-71.1097, 42.3736],
-  "SOMERVILLE": [-71.0995, 42.3876],
-  "BROOKLINE": [-71.1212, 42.3318],
-  "NEWTON": [-71.2092, 42.3370],
-  "WALTHAM": [-71.2356, 42.3765],
-  "LEXINGTON": [-71.2273, 42.4473],
-  "ARLINGTON": [-71.1569, 42.4154],
-  "BELMONT": [-71.1789, 42.3959],
-  "WATERTOWN": [-71.1773, 42.3709],
-  "BURLINGTON": [-71.1956, 42.5048],
-  "BRIGHTON": [-71.1513, 42.3489],
-  "WEST ROXBURY": [-71.1573, 42.2789],
-  "DORCHESTER": [-71.0589, 42.3001],
-  "SOUTH BOSTON": [-71.0489, 42.3389],
-  "DEDHAM": [-71.1656, 42.2423],
-  "NORWOOD": [-71.1956, 42.1887],
-  // Western MA
-  "SPRINGFIELD": [-72.5898, 42.1015],
-  "WEST SPRINGFIELD": [-72.6201, 42.1070],
-  "HOLYOKE": [-72.6162, 42.2043],
-  "CHICOPEE": [-72.6076, 42.1487],
-  "NORTHAMPTON": [-72.6401, 42.3251],
-  "AMHERST": [-72.5198, 42.3751],
-  "PITTSFIELD": [-73.2601, 42.4501],
-  "GREENFIELD": [-72.6001, 42.5876],
-  // MetroWest
-  "FRAMINGHAM": [-71.4162, 42.2793],
-  "NATICK": [-71.3489, 42.2834],
-  "WELLESLEY": [-71.2923, 42.2959],
-  "NEEDHAM": [-71.2323, 42.2834],
-  "ASHLAND": [-71.4623, 42.2612],
-  "MARLBOROUGH": [-71.5523, 42.3459],
-  "SUDBURY": [-71.4156, 42.3834],
-  "CONCORD": [-71.3489, 42.4601],
-  "ACTON": [-71.4356, 42.4851],
-  // Cape Cod / South Shore
-  "BARNSTABLE": [-70.2962, 41.7003],
-  "FALMOUTH": [-70.6156, 41.5517],
-  "YARMOUTH": [-70.2289, 41.7060],
-  "PLYMOUTH": [-70.6623, 41.9584],
-  "MARSHFIELD": [-70.7056, 42.0917],
-  "BROCKTON": [-71.0184, 42.0834],
-  "TAUNTON": [-71.0898, 41.9001],
-  "NEW BEDFORD": [-70.9342, 41.6362],
-  "FALL RIVER": [-71.1551, 41.7015],
-  // North Shore
-  "SALEM": [-70.8984, 42.5195],
-  "BEVERLY": [-70.8801, 42.5584],
-  "PEABODY": [-70.9284, 42.5278],
-  "LYNN": [-70.9495, 42.4668],
-  "GLOUCESTER": [-70.6623, 42.6159],
-  "HAVERHILL": [-71.0773, 42.7762],
-  "LAWRENCE": [-71.1634, 42.7070],
-  "LOWELL": [-71.3162, 42.6334],
-  "CHELMSFORD": [-71.3673, 42.5998],
-  // Merrimack Valley
-  "ANDOVER": [-71.1373, 42.6584],
-  "METHUEN": [-71.1901, 42.7262],
-  "DRACUT": [-71.3012, 42.6734],
-  "TEWKSBURY": [-71.2345, 42.6101],
-  "BILLERICA": [-71.2689, 42.5584],
-  "WILMINGTON": [-71.1734, 42.5467],
-  // South Shore / Southeast
-  "QUINCY": [-71.0023, 42.2529],
-  "WEYMOUTH": [-70.9395, 42.2209],
-  "HINGHAM": [-70.8895, 42.2417],
-  "SCITUATE": [-70.7284, 42.1995],
-  "NORWELL": [-70.7923, 42.1612],
-  "HANOVER": [-70.8123, 42.1134],
-  "ROCKLAND": [-70.9184, 42.1301],
-  "ABINGTON": [-70.9456, 42.1051],
-  "WHITMAN": [-70.9345, 42.0834],
-  "BRIDGEWATER": [-70.9701, 41.9901],
-  "MIDDLEBOROUGH": [-70.9112, 41.8934],
-  "WAREHAM": [-70.7256, 41.7612],
-  "KINGSTON": [-70.7234, 41.9834],
-  "DUXBURY": [-70.6789, 42.0417],
-  // Blackstone Valley
-  "MILFORD": [-71.5162, 42.1395],
-  "MENDON": [-71.5523, 42.1012],
-  "BELLINGHAM": [-71.4745, 42.0867],
-  "FRANKLIN": [-71.3956, 42.0834],
-  "MEDWAY": [-71.3989, 42.1417],
-  "HOPKINTON": [-71.5223, 42.2289],
-  // Connecticut River Valley
-  "WESTFIELD": [-72.7490, 42.1251],
-  "AGAWAM": [-72.6512, 42.0701],
-  "EASTHAMPTON": [-72.6690, 42.2668],
-  "SOUTH HADLEY": [-72.5745, 42.2584],
-  "LUDLOW": [-72.4756, 42.1601],
-  "PALMER": [-72.3289, 42.1584],
-  "WARE": [-72.2389, 42.2601],
-  // Berkshires
-  "NORTH ADAMS": [-73.1089, 42.7001],
-  "GREAT BARRINGTON": [-73.3623, 42.1962],
-  "LEE": [-73.2489, 42.3062],
-  "LENOX": [-73.2856, 42.3562],
-  "WILLIAMSTOWN": [-73.2034, 42.7123],
-};
-
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -185,16 +53,8 @@ export async function registerRoutes(
   // ===== OUTAGES API =====
   
   // Main outages endpoint for live map - returns GeoJSON FeatureCollection
-  // Helper: find nearest town from coordinates
-  function findNearestTown(lng: number, lat: number): string | null {
-    let best: string | null = null;
-    let bestDist = Infinity;
-    for (const [town, [tLng, tLat]] of Object.entries(townCentroids)) {
-      const d = Math.sqrt((lng - tLng) ** 2 + (lat - tLat) ** 2);
-      if (d < bestDist) { bestDist = d; best = town; }
-    }
-    return bestDist < 0.15 ? best : null; // ~10 mile threshold
-  }
+  // findNearestTown imported from ./utils/towns
+  const findNearestTown = findNearestTownUtil;
 
   // Helper: calculate severity score
   function calculateSeverityScore(customers: number, hoursOut: number, reportedAt: Date): number {
@@ -699,8 +559,10 @@ export async function registerRoutes(
       }
 
       // Add towns with historical outage data (PRIMARY DATA SOURCE - real DPU filings)
-      const maxIncidents = Math.max(...Array.from(townHistorical.values()).map(t => t.totalIncidents), 1);
-
+      // This is the most important data source for "Knock Now" scoring
+      const townIncidentCounts = Array.from(townHistorical.values()).map(t => t.totalIncidents);
+      const maxIncidents = townIncidentCounts.length > 0 ? Math.max(...townIncidentCounts) : 1;
+      
       for (const [townKey, historical] of Array.from(townHistorical)) {
         if (addedNames.has(townKey)) continue;
         
@@ -1077,8 +939,8 @@ export async function registerRoutes(
         street: street || null,
         totalOutages: outages.length,
         totalCustomersAffected: totalCustomers,
-        avgDurationMinutes: Math.round(totalDuration / outages.length),
-        avgCustomersAffected: Math.round(totalCustomers / outages.length),
+        avgDurationMinutes: outages.length > 0 ? Math.round(totalDuration / outages.length) : 0,
+        avgCustomersAffected: outages.length > 0 ? Math.round(totalCustomers / outages.length) : 0,
         mostCommonCauses,
         recentOutages,
         yearlyBreakdown: yearlyData,
@@ -1197,45 +1059,14 @@ export async function registerRoutes(
 
   // ===== LAYER API =====
 
-  // Gas coverage layer - MA municipalities with natural gas service
+  // Gas coverage layer - returns empty until real municipal gas boundary data is available
   app.get("/api/layers/gas", async (_req, res) => {
     try {
-      const gasTowns: Record<string, [number, number][]> = {
-        "Boston": [[-71.12, 42.40], [-71.12, 42.32], [-71.00, 42.32], [-71.00, 42.40]],
-        "Worcester": [[-71.87, 42.30], [-71.87, 42.22], [-71.74, 42.22], [-71.74, 42.30]],
-        "Springfield": [[-72.65, 42.14], [-72.65, 42.06], [-72.53, 42.06], [-72.53, 42.14]],
-        "Cambridge": [[-71.16, 42.40], [-71.16, 42.35], [-71.07, 42.35], [-71.07, 42.40]],
-        "Lowell": [[-71.37, 42.66], [-71.37, 42.61], [-71.27, 42.61], [-71.27, 42.66]],
-        "Brockton": [[-71.07, 42.11], [-71.07, 42.06], [-70.97, 42.06], [-70.97, 42.11]],
-        "New Bedford": [[-70.98, 41.67], [-70.98, 41.61], [-70.89, 41.61], [-70.89, 41.67]],
-        "Fall River": [[-71.20, 41.73], [-71.20, 41.68], [-71.11, 41.68], [-71.11, 41.73]],
-        "Newton": [[-71.26, 42.37], [-71.26, 42.31], [-71.16, 42.31], [-71.16, 42.37]],
-        "Framingham": [[-71.47, 42.31], [-71.47, 42.25], [-71.37, 42.25], [-71.37, 42.31]],
-        "Haverhill": [[-71.13, 42.80], [-71.13, 42.75], [-71.03, 42.75], [-71.03, 42.80]],
-        "Lawrence": [[-71.22, 42.73], [-71.22, 42.68], [-71.12, 42.68], [-71.12, 42.73]],
-        "Somerville": [[-71.12, 42.40], [-71.12, 42.37], [-71.07, 42.37], [-71.07, 42.40]],
-        "Brookline": [[-71.17, 42.35], [-71.17, 42.31], [-71.10, 42.31], [-71.10, 42.35]],
-        "Plymouth": [[-70.72, 41.99], [-70.72, 41.93], [-70.62, 41.93], [-70.62, 41.99]],
-        "Salem": [[-70.94, 42.54], [-70.94, 42.50], [-70.86, 42.50], [-70.86, 42.54]],
-        "Taunton": [[-71.14, 41.93], [-71.14, 41.87], [-71.04, 41.87], [-71.04, 41.93]],
-        "Pittsfield": [[-73.31, 42.48], [-73.31, 42.42], [-73.21, 42.42], [-73.21, 42.48]],
-        "Holyoke": [[-72.67, 42.23], [-72.67, 42.18], [-72.57, 42.18], [-72.57, 42.23]],
-        "Chicopee": [[-72.66, 42.18], [-72.66, 42.12], [-72.56, 42.12], [-72.56, 42.18]],
-      };
-
-      const features = Object.entries(gasTowns).map(([name, coords]) => ({
-        type: "Feature" as const,
-        properties: { name, has_gas: true, provider: "National Grid / Eversource" },
-        geometry: {
-          type: "Polygon" as const,
-          coordinates: [[...coords, coords[0]]],
-        },
-      }));
-
       res.json({
         updatedAt: new Date().toISOString(),
-        source: "sample" as const,
-        features: { type: "FeatureCollection", features },
+        dataUnavailable: true,
+        message: "Gas coverage boundary data not yet integrated. Real municipal boundary GeoJSON required.",
+        features: { type: "FeatureCollection", features: [] },
       });
     } catch (error) {
       console.error("Error fetching gas layer:", error);
@@ -1243,42 +1074,14 @@ export async function registerRoutes(
     }
   });
 
-  // Electric heating share layer - towns with higher electric heat usage
+  // Electric heating share layer - returns empty until real ACS/census data is integrated
   app.get("/api/layers/heating", async (_req, res) => {
     try {
-      const heatingTowns: { name: string; share: number; coords: [number, number][] }[] = [
-        { name: "Barnstable", share: 0.35, coords: [[-70.35, 41.73], [-70.35, 41.67], [-70.24, 41.67], [-70.24, 41.73]] },
-        { name: "Falmouth", share: 0.32, coords: [[-70.67, 41.58], [-70.67, 41.52], [-70.56, 41.52], [-70.56, 41.58]] },
-        { name: "Yarmouth", share: 0.30, coords: [[-70.28, 41.73], [-70.28, 41.68], [-70.18, 41.68], [-70.18, 41.73]] },
-        { name: "Nantucket", share: 0.42, coords: [[-70.12, 41.30], [-70.12, 41.24], [-70.02, 41.24], [-70.02, 41.30]] },
-        { name: "Martha's Vineyard", share: 0.38, coords: [[-70.65, 41.42], [-70.65, 41.36], [-70.52, 41.36], [-70.52, 41.42]] },
-        { name: "Provincetown", share: 0.33, coords: [[-70.20, 42.07], [-70.20, 42.03], [-70.14, 42.03], [-70.14, 42.07]] },
-        { name: "Chatham", share: 0.29, coords: [[-69.99, 41.70], [-69.99, 41.65], [-69.90, 41.65], [-69.90, 41.70]] },
-        { name: "Wellfleet", share: 0.27, coords: [[-70.00, 41.95], [-70.00, 41.90], [-69.93, 41.90], [-69.93, 41.95]] },
-        { name: "Truro", share: 0.28, coords: [[-70.08, 42.02], [-70.08, 41.97], [-70.01, 41.97], [-70.01, 42.02]] },
-        { name: "Brewster", share: 0.25, coords: [[-70.10, 41.78], [-70.10, 41.73], [-70.01, 41.73], [-70.01, 41.78]] },
-        { name: "Eastham", share: 0.26, coords: [[-69.99, 41.85], [-69.99, 41.80], [-69.93, 41.80], [-69.93, 41.85]] },
-        { name: "Orleans", share: 0.24, coords: [[-69.99, 41.81], [-69.99, 41.77], [-69.93, 41.77], [-69.93, 41.81]] },
-        { name: "Dennis", share: 0.23, coords: [[-70.18, 41.73], [-70.18, 41.69], [-70.10, 41.69], [-70.10, 41.73]] },
-        { name: "Harwich", share: 0.22, coords: [[-70.08, 41.70], [-70.08, 41.66], [-69.99, 41.66], [-69.99, 41.70]] },
-        { name: "Sandwich", share: 0.20, coords: [[-70.53, 41.78], [-70.53, 41.73], [-70.45, 41.73], [-70.45, 41.78]] },
-        { name: "Bourne", share: 0.19, coords: [[-70.62, 41.75], [-70.62, 41.70], [-70.55, 41.70], [-70.55, 41.75]] },
-        { name: "Mashpee", share: 0.21, coords: [[-70.51, 41.66], [-70.51, 41.61], [-70.44, 41.61], [-70.44, 41.66]] },
-      ];
-
-      const features = heatingTowns.map(t => ({
-        type: "Feature" as const,
-        properties: { name: t.name, electric_heat_share: t.share },
-        geometry: {
-          type: "Polygon" as const,
-          coordinates: [[...t.coords, t.coords[0]]],
-        },
-      }));
-
       res.json({
         updatedAt: new Date().toISOString(),
-        source: "sample" as const,
-        features: { type: "FeatureCollection", features },
+        dataUnavailable: true,
+        message: "Electric heat share data not yet integrated. Real ACS heating fuel data required.",
+        features: { type: "FeatureCollection", features: [] },
       });
     } catch (error) {
       console.error("Error fetching heating layer:", error);
@@ -1295,6 +1098,310 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error deleting historical data:", error);
       res.status(500).json({ error: "Failed to delete historical data" });
+    }
+  });
+
+  // ===== NEW ENDPOINTS =====
+
+  // GET /api/towns — All MA towns with coordinates from DPU data
+  app.get("/api/towns", async (_req, res) => {
+    try {
+      const cacheKey = "towns:all";
+      const cached = getCache<any>(cacheKey);
+      if (cached) return res.json(cached);
+
+      const distinctTowns = await storage.getDistinctTowns();
+      const allKnownTowns = getAllTownNames();
+
+      // Merge DPU towns with centroid towns
+      const allTownNames = Array.from(new Set([...distinctTowns.map(t => t.toUpperCase()), ...allKnownTowns])).sort();
+
+      const towns = allTownNames
+        .map(town => {
+          const coords = getTownCoords(town);
+          return coords ? { town, lat: coords[1], lon: coords[0], inDPUData: distinctTowns.some(t => t.toUpperCase() === town) } : null;
+        })
+        .filter(Boolean);
+
+      const result = { updatedAt: new Date().toISOString(), total: towns.length, towns };
+      setCache(cacheKey, result, TTL.TOWN_SUMMARY);
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching towns:", error);
+      res.status(500).json({ error: "Failed to fetch towns" });
+    }
+  });
+
+  // GET /api/towns/:town/summary — Knock Score + historical stats + social for one town
+  app.get("/api/towns/:town/summary", async (req, res) => {
+    try {
+      const { town } = req.params;
+      const townKey = town.toUpperCase();
+      const cacheKey = `town:${townKey}:summary`;
+      const cached = getCache<any>(cacheKey);
+      if (cached) return res.json(cached);
+
+      const [historicalOutages, socialSignals, locationScores] = await Promise.all([
+        storage.getHistoricalOutages({ town: townKey, limit: 10000 }),
+        storage.getSocialSignalsByTown(townKey, 168), // 7 days
+        storage.getTopLocations(1000),
+      ]);
+
+      const locationScore = locationScores.find(l =>
+        l.h3Cell === `town-${townKey}` || l.h3Cell === townKey
+      );
+
+      const totalCustomers = historicalOutages.reduce((s, o) => s + (o.customersOut || 0), 0);
+      const totalDuration = historicalOutages.reduce((s, o) => s + (o.durationHours || 0), 0);
+
+      const causeCounts: Record<string, number> = {};
+      for (const o of historicalOutages) {
+        const c = o.cause || "Unknown";
+        causeCounts[c] = (causeCounts[c] || 0) + 1;
+      }
+
+      const coords = getTownCoords(townKey);
+
+      const result = {
+        town: townKey,
+        lat: coords ? coords[1] : null,
+        lon: coords ? coords[0] : null,
+        knockScore: locationScore?.finalScore ?? null,
+        outageScore: locationScore?.outageScore ?? null,
+        socialScore: locationScore?.socialScore ?? null,
+        solarScore: locationScore?.solarScore ?? null,
+        historical: {
+          totalIncidents: historicalOutages.length,
+          totalCustomersAffected: totalCustomers,
+          avgDurationHours: historicalOutages.length > 0 ? totalDuration / historicalOutages.length : 0,
+          topCauses: Object.entries(causeCounts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([cause, count]) => ({ cause, count })),
+        },
+        social: {
+          signalCount7d: socialSignals.length,
+          avgUrgency: socialSignals.length > 0 ? socialSignals.reduce((s, sig) => s + sig.urgency, 0) / socialSignals.length : 0,
+        },
+        updatedAt: new Date().toISOString(),
+      };
+
+      setCache(cacheKey, result, TTL.TOWN_SUMMARY);
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching town summary:", error);
+      res.status(500).json({ error: "Failed to fetch town summary" });
+    }
+  });
+
+  // GET /api/towns/:town/timeline — Monthly outage counts over N years
+  app.get("/api/towns/:town/timeline", async (req, res) => {
+    try {
+      const { town } = req.params;
+      const townKey = town.toUpperCase();
+
+      const outages = await storage.getHistoricalOutages({ town: townKey, limit: 50000 });
+
+      const monthlyMap = new Map<string, { count: number; customers: number }>();
+      for (const o of outages) {
+        const date = o.incidentStart || o.reportDate;
+        if (!date) continue;
+        const d = new Date(date);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        if (!monthlyMap.has(key)) monthlyMap.set(key, { count: 0, customers: 0 });
+        const entry = monthlyMap.get(key)!;
+        entry.count++;
+        entry.customers += o.customersOut || 0;
+      }
+
+      const timeline = Array.from(monthlyMap.entries())
+        .map(([month, data]) => ({ month, ...data }))
+        .sort((a, b) => a.month.localeCompare(b.month));
+
+      res.json({ town: townKey, total: timeline.length, timeline });
+    } catch (error) {
+      console.error("Error fetching town timeline:", error);
+      res.status(500).json({ error: "Failed to fetch town timeline" });
+    }
+  });
+
+  // GET /api/reliability/:provider — SAIDI/SAIFI/CAIDI by year with YoY trends
+  app.get("/api/reliability/:provider", async (req, res) => {
+    try {
+      const { provider } = req.params;
+      const cacheKey = `reliability:${provider}`;
+      const cached = getCache<any>(cacheKey);
+      if (cached) return res.json(cached);
+
+      const metrics = await storage.getReliabilityMetrics(provider);
+
+      // Calculate YoY trends
+      const sorted = [...metrics].sort((a, b) => (a.year || 0) - (b.year || 0));
+      const withTrends = sorted.map((m, i) => {
+        const prev = sorted[i - 1];
+        return {
+          ...m,
+          saidiTrend: prev && prev.saidi && m.saidi ? ((m.saidi - prev.saidi) / prev.saidi) * 100 : null,
+          saifiTrend: prev && prev.saifi && m.saifi ? ((m.saifi - prev.saifi) / prev.saifi) * 100 : null,
+        };
+      });
+
+      const result = {
+        provider,
+        updatedAt: new Date().toISOString(),
+        metrics: withTrends,
+        summary: metrics.length > 0 ? {
+          avgSAIDI: metrics.reduce((s, m) => s + (m.saidi || 0), 0) / metrics.length,
+          avgSAIFI: metrics.reduce((s, m) => s + (m.saifi || 0), 0) / metrics.length,
+          avgCAIDI: metrics.reduce((s, m) => s + (m.caidi || 0), 0) / metrics.length,
+          yearsOfData: metrics.length,
+        } : null,
+      };
+
+      setCache(cacheKey, result, TTL.RELIABILITY);
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching provider reliability:", error);
+      res.status(500).json({ error: "Failed to fetch reliability data" });
+    }
+  });
+
+  // GET /api/outages/heatmap — Live outage count + customers per town
+  app.get("/api/outages/heatmap", async (_req, res) => {
+    try {
+      const activeOutages = await storage.getActiveOutages();
+
+      const townMap = new Map<string, { count: number; customers: number }>();
+      for (const outage of activeOutages) {
+        const geom = outage.geometry as any;
+        if (geom?.type !== "Point" || !geom?.coordinates) continue;
+        const town = findNearestTown(geom.coordinates[0], geom.coordinates[1]);
+        if (!town) continue;
+        if (!townMap.has(town)) townMap.set(town, { count: 0, customers: 0 });
+        const entry = townMap.get(town)!;
+        entry.count++;
+        entry.customers += outage.customersAffected || 0;
+      }
+
+      const heatmap = Array.from(townMap.entries()).map(([town, data]) => {
+        const coords = getTownCoords(town);
+        return { town, ...data, lat: coords ? coords[1] : null, lon: coords ? coords[0] : null };
+      }).filter(d => d.lat && d.lon);
+
+      res.json({ updatedAt: new Date().toISOString(), total: heatmap.length, heatmap });
+    } catch (error) {
+      console.error("Error fetching outage heatmap:", error);
+      res.status(500).json({ error: "Failed to fetch outage heatmap" });
+    }
+  });
+
+  // GET /api/solar/estimate — Annual kWh + savings for lat/lon (NREL PVWatts)
+  app.get("/api/solar/estimate", async (req, res) => {
+    try {
+      const { lat, lon } = req.query;
+      if (!lat || !lon) {
+        return res.status(400).json({ error: "lat and lon required" });
+      }
+
+      const latNum = parseFloat(lat as string);
+      const lonNum = parseFloat(lon as string);
+
+      // Check cache first
+      const cacheKey = `solar:${latNum.toFixed(3)},${lonNum.toFixed(3)}`;
+      const cached = getCache<any>(cacheKey);
+      if (cached) return res.json(cached);
+
+      // Check DB for existing solar data near this location
+      const nearby = await storage.getSolarData(latNum, lonNum, 0.05);
+      if (nearby.length > 0) {
+        const s = nearby[0];
+        const result = {
+          lat: latNum, lon: lonNum,
+          annualKwh: s.kwhPerKw ? s.kwhPerKw * 7 : null, // Assume 7kW system
+          kwhPerKw: s.kwhPerKw,
+          solarScore: s.solarScore,
+          source: "db_cache",
+          updatedAt: s.updatedAt,
+        };
+        setCache(cacheKey, result, TTL.TOWN_SUMMARY);
+        return res.json(result);
+      }
+
+      // Call NREL PVWatts API
+      const apiKey = process.env.NREL_API_KEY || "DEMO_KEY";
+      const nrelUrl = `https://developer.nrel.gov/api/pvwatts/v8.json?api_key=${apiKey}&lat=${latNum}&lon=${lonNum}&system_capacity=7&azimuth=180&tilt=20&array_type=1&module_type=1&losses=14`;
+
+      const nrelRes = await fetch(nrelUrl, { signal: AbortSignal.timeout(10000) });
+      if (!nrelRes.ok) {
+        return res.json({ lat: latNum, lon: lonNum, annualKwh: null, source: "nrel_unavailable" });
+      }
+
+      const nrelData = await nrelRes.json();
+      const annualKwh = nrelData?.outputs?.ac_annual ?? null;
+      const kwhPerKw = annualKwh ? annualKwh / 7 : null;
+
+      const result = {
+        lat: latNum, lon: lonNum,
+        annualKwh,
+        kwhPerKw,
+        solarScore: kwhPerKw ? Math.min(100, (kwhPerKw / 1600) * 100) : null,
+        source: "nrel_pvwatts",
+        updatedAt: new Date().toISOString(),
+      };
+
+      setCache(cacheKey, result, TTL.TOWN_SUMMARY);
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching solar estimate:", error);
+      res.status(500).json({ error: "Failed to fetch solar estimate" });
+    }
+  });
+
+  // GET /api/health — Scraper status, DB counts, last run times
+  app.get("/api/health", async (_req, res) => {
+    try {
+      const cacheKey = "health:status";
+      const cached = getCache<any>(cacheKey);
+      if (cached) return res.json(cached);
+
+      const [outageCount, historicalStats, scraperLogs, socialCount, reliabilityCount] = await Promise.all([
+        storage.getActiveOutages().then(o => o.length),
+        storage.getHistoricalOutageStats(),
+        storage.getScraperLogs(),
+        storage.getRecentSocialSignals(24).then(s => s.length),
+        storage.getReliabilityMetrics().then(m => m.length),
+      ]);
+
+      // Group scraper logs by scraper name (latest per scraper)
+      const latestLogs = new Map<string, any>();
+      for (const log of scraperLogs) {
+        if (!latestLogs.has(log.scraper)) {
+          latestLogs.set(log.scraper, log);
+        }
+      }
+
+      const result = {
+        status: "ok",
+        updatedAt: new Date().toISOString(),
+        database: {
+          activeOutages: outageCount,
+          historicalOutages: historicalStats.totalRecords,
+          socialSignals24h: socialCount,
+          reliabilityMetrics: reliabilityCount,
+        },
+        scrapers: Object.fromEntries(
+          Array.from(latestLogs.entries()).map(([name, log]) => [name, {
+            status: log.status,
+            lastRunAt: log.lastRunAt,
+            recordsFetched: log.recordsFetched,
+            durationMs: log.durationMs,
+            error: log.errorMessage,
+          }])
+        ),
+      };
+
+      setCache(cacheKey, result, TTL.HEALTH);
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching health:", error);
+      res.status(500).json({ error: "Failed to fetch health status" });
     }
   });
 
